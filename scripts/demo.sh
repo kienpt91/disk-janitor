@@ -91,9 +91,10 @@ run approve "$PLAN" --state-dir "$DEMO/state" </dev/null || true
 echo; echo "# and apply without approval is refused:"
 run apply "$PLAN" $OPTS || true
 
-echo; echo "# a human types the digest prefix at a real terminal (pty provided by script(1)):"
+echo; echo "# a human reads the digest in the explain output above and types it at a real terminal"
+echo "# (the terminal here is a pty from script(1); any same-user process that can allocate a pty can do this too, see SECURITY.md):"
 echo "\$ disk-janitor approve $PLAN"
-printf '%s\n' "$(echo "$DIGEST" | cut -c1-8)" | script -qec "$CLI approve $PLAN --state-dir $DEMO/state" /dev/null | tr -d '\r'
+printf '%s\n' "$DIGEST" | script -qec "$CLI approve $PLAN --state-dir $DEMO/state" /dev/null | tr -d '\r'
 
 run apply "$PLAN" $OPTS
 run status --state-dir "$DEMO/state"
@@ -104,10 +105,10 @@ echo; echo "# undo one item by path:"
 run restore "$P/webapp/node_modules" --state-dir "$DEMO/state"
 echo; echo "# what would a purge delete? (TTL 0 only for this demo; the default is 7 days)"
 run purge --state-dir "$DEMO/state" --ttl-days 0 --dry-run
-echo; echo "# purge is human-only as well: without a terminal it refuses"
+echo; echo "# purge needs a terminal too: without one it refuses"
 run purge --state-dir "$DEMO/state" --ttl-days 0 </dev/null || true
 CODE=$($CLI purge --state-dir "$DEMO/state" --ttl-days 0 --dry-run | sed -n 's/.*real purge: \([0-9a-f]*\)).*/\1/p')
-echo; echo "# a human types the confirmation code at a real terminal:"
+echo; echo "# a human types the confirmation code printed by the dry run, at a real terminal:"
 echo "\$ disk-janitor purge --ttl-days 0"
 printf '%s\n' "$CODE" | script -qec "$CLI purge --state-dir $DEMO/state --ttl-days 0" /dev/null | tr -d '\r'
 run status --state-dir "$DEMO/state"
