@@ -6,7 +6,8 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortKeys(value));
 }
 
-function sortKeys(value: unknown): unknown {
+/** Deep copy with object keys sorted and undefined values dropped (the shape canonicalJson serializes). */
+export function sortKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeys);
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};

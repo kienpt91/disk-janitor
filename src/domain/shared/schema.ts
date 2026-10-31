@@ -104,7 +104,7 @@ export function union<T>(tag: string, variants: Record<string, Parser<T>>): Pars
 
 /** Parse JSON text under a byte limit and validate it. */
 export function parseJson<T>(text: string, parser: Parser<T>, maxBytes: number, what: string): T {
-  if (Buffer.byteLength(text, "utf8") > maxBytes) throw new SchemaError(`${what}: larger than ${maxBytes} bytes`);
+  if (new TextEncoder().encode(text).length > maxBytes) throw new SchemaError(`${what}: larger than ${maxBytes} bytes`);
   let raw: unknown;
   try {
     raw = JSON.parse(text);
