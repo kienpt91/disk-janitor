@@ -1,7 +1,7 @@
 import { utimesSync } from "node:fs";
 import type { RawConfig } from "../src/config.js";
 import type { Deps } from "../src/deps.js";
-import type { FsApi } from "../src/fsapi.js";
+import type { FileSystem } from "../src/application/ports/common.js";
 import { scan, type ScanResult } from "../src/scan.js";
 import type { Config } from "../src/config.js";
 import { DAY, makeConfig, testDeps, type FakeRun, type Sandbox } from "./helpers.js";
@@ -36,7 +36,7 @@ export function skippedFor(result: ScanResult, path: string): string[] {
 }
 
 /** Wrap the real fs so every lstat/readdir/realpath path is recorded. */
-export function recordingFs(base: FsApi, seen: string[]): FsApi {
+export function recordingFs(base: FileSystem, seen: string[]): FileSystem {
   return {
     lstat: (p) => {
       seen.push(p);

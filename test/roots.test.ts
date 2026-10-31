@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import type { FsApi } from "../src/fsapi.js";
+import type { FileSystem } from "../src/application/ports/common.js";
 import { RootsError, validateRoots } from "../src/roots.js";
 import { makeSandbox, testDeps, writeText, type Sandbox } from "./helpers.js";
 
@@ -12,7 +12,7 @@ function opts(sb: Sandbox, extra: { cwd?: string; homes?: string[] } = {}) {
 }
 
 /** A file system view where every path "exists" as a directory and realpath is the identity. */
-function pretendFs(sb: Sandbox): FsApi {
+function pretendFs(sb: Sandbox): FileSystem {
   return { ...fs, realpath: async (p) => p, lstat: () => fs.lstat(sb.projects) };
 }
 

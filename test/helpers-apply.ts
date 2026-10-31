@@ -1,4 +1,4 @@
-import type { BigIntStats } from "node:fs";
+import type { FileStat } from "../src/application/ports/common.js";
 import { join } from "node:path";
 import { ApplyError, applyPlan, type ApplyResult } from "../src/apply.js";
 import { AuditLog, type AuditEntry } from "../src/audit.js";
@@ -78,8 +78,8 @@ export function storedItem(state: State, plan: Plan, index: number): string {
   return itemPath(state, plan.id, String(index + 1).padStart(4, "0"));
 }
 
-/** A BigIntStats view with a different `dev`; every method keeps working on the real stats. */
-export function withDev(st: BigIntStats, dev: bigint): BigIntStats {
+/** A FileStat view with a different `dev`; every method keeps working on the real stats. */
+export function withDev(st: FileStat, dev: bigint): FileStat {
   return new Proxy(st, {
     get(target, key) {
       if (key === "dev") return dev;

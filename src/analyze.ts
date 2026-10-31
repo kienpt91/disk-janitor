@@ -1,6 +1,5 @@
-import type { BigIntStats } from "node:fs";
 import { join } from "node:path";
-import type { FsApi } from "./fsapi.js";
+import type { FileStat, FileSystem } from "./application/ports/common.js";
 import { contentNameReason } from "./domain/policy/protected.js";
 
 export interface TreeStats {
@@ -29,7 +28,7 @@ const CHUNK = 128;
  * names, database markers, names that cannot be represented, too many entries, or hard-linked
  * files whose link group is not entirely inside the tree.
  */
-export async function analyzeTree(fs: FsApi, root: string, rootStat: BigIntStats, opts: AnalyzeOptions): Promise<TreeResult> {
+export async function analyzeTree(fs: FileSystem, root: string, rootStat: FileStat, opts: AnalyzeOptions): Promise<TreeResult> {
   const maxDepth = opts.maxTreeDepth ?? 100;
   const links = new Map<bigint, { nlink: bigint; seen: number }>();
   let size = Number(rootStat.blocks) * 512;
@@ -54,14 +53,14 @@ export async function analyzeTree(fs: FsApi, root: string, rootStat: BigIntStats
       }
       entries += slice.length;
       if (entries > opts.maxEntries) return { ok: false, reason: `more than ${opts.maxEntries} entries` };
-      let stats: BigIntStats[];
+      let stats: FileStat[];
       try {
         stats = await Promise.all(slice.map((name) => fs.lstat(join(path, name))));
       } catch (e) {
         return { ok: false, reason: `changed while scanning (${(e as NodeJS.ErrnoException).code ?? "error"})` };
       }
       for (let k = 0; k < slice.length; k++) {
-        const st = stats[k] as BigIntStats;
+        const st = stats[k] as FileStat;
         const name = slice[k] as string;
         if (st.dev !== opts.dev) return { ok: false, reason: "crosses a file system boundary" };
         const mtime = Number(st.mtimeMs);
@@ -95,7 +94,7 @@ export async function analyzeTree(fs: FsApi, root: string, rootStat: BigIntStats
 
 /** Newest mtime of regular files and directories under `dir`, skipping excluded names. Bounded. */
 export async function newestSourceMtime(
-  fs: FsApi,
+  fs: FileSystem,
   dir: string,
   dev: bigint,
   skipNames: ReadonlySet<string>,
@@ -115,7 +114,7 @@ export async function newestSourceMtime(
     for (const name of names) {
       if (skipNames.has(name)) continue;
       if (++count > maxEntries) return { ok: false, reason: `project has more than ${maxEntries} source entries` };
-      let st: BigIntStats;
+      let st: FileStat;
       try {
         st = await fs.lstat(join(cur, name));
       } catch {

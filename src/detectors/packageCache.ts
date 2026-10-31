@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { lstatOrNull } from "../fsapi.js";
-import { findSymlinkInChain } from "../paths.js";
+import { lstatOrNull } from "../application/inspection.js";
+import { findSymlinkInChain } from "../application/inspection.js";
 import { evaluateFsCandidate, skip, type ScanCtx } from "./common.js";
 
 export interface CacheLocation {

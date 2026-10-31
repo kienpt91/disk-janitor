@@ -1,7 +1,7 @@
 import { join } from "node:path";
-import { lstatOrNull } from "../fsapi.js";
+import { lstatOrNull } from "../application/inspection.js";
 import { hasTrackedFiles, isIgnored, repoInfo } from "../git.js";
-import { isInside } from "../paths.js";
+import { isInside } from "../domain/shared/paths.js";
 import { evaluateFsCandidate, skip, type ScanCtx } from "./common.js";
 
 interface BuildSpec {

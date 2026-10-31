@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { applyPlan } from "../src/apply.js";
 import { AuditLog } from "../src/audit.js";
 import type { Deps } from "../src/deps.js";
-import { nodeFs } from "../src/fsapi.js";
+import { nodeFs } from "../src/infrastructure/fs/node-fs.js";
 import { computePlanDigest } from "../src/plan.js";
 import { readManifest, restore } from "../src/quarantine.js";
 import type { FsCandidate } from "../src/domain/model/types.js";

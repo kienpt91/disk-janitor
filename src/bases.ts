@@ -1,5 +1,5 @@
 import { cachePaths } from "./detectors/packageCache.js";
-import { isInside } from "./paths.js";
+import { isInside } from "./domain/shared/paths.js";
 import type { ConfigCore } from "./domain/model/types.js";
 
 export type Base = { kind: "root" | "cache"; dir: string };

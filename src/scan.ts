@@ -1,9 +1,9 @@
 import { join } from "node:path";
 import type { Config } from "./config.js";
 import type { Deps } from "./deps.js";
-import { lstatOrNull } from "./fsapi.js";
+import { lstatOrNull } from "./application/inspection.js";
 import { loadOpenFiles } from "./openfiles.js";
-import { isInside } from "./paths.js";
+import { isInside } from "./domain/shared/paths.js";
 import { protectedReason } from "./domain/policy/protected.js";
 import { BUILD_FIRST_SEGMENTS, evaluateBuildOutputs } from "./detectors/buildOutput.js";
 import { skip, type ScanCtx } from "./detectors/common.js";

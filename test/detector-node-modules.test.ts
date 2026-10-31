@@ -1,7 +1,8 @@
 import { linkSync, mkdirSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { nodeFs, type FsApi } from "../src/fsapi.js";
+import type { FileSystem } from "../src/application/ports/common.js";
+import { nodeFs } from "../src/infrastructure/fs/node-fs.js";
 import { RootsError } from "../src/roots.js";
 import { ageTree, DAY, git, makeConfig, makeProject, makeSandbox, testDeps, treeHash, writeBytes, writeText } from "./helpers.js";
 import { candidatePaths, recordingFs, scanFor, skippedFor, touch } from "./helpers-detectors.js";
@@ -336,7 +337,7 @@ describe("node-modules detector: negatives", () => {
     const sb = makeSandbox();
     const proj = makeProject(join(sb.projects, "app"));
     const marker = join(proj, NM, "dep") + "/";
-    const wrapped: FsApi = {
+    const wrapped: FileSystem = {
       ...nodeFs,
       lstat: async (p) => {
         const st = await nodeFs.lstat(p);

@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isInside, isCanonicalAbsolute } from "../src/paths.js";
+import { isInside, isCanonicalAbsolute } from "../src/domain/shared/paths.js";
 import { MAX_SKIPPED } from "../src/detectors/common.js";
 import { ageTree, makeConfig, makeMixedTree, makeProject, makeSandbox, testDeps, treeHash, writeBytes, writeText } from "./helpers.js";
 import { candidatePaths, recordingFs, scanFor } from "./helpers-detectors.js";
-import { nodeFs } from "../src/fsapi.js";
+import { nodeFs } from "../src/infrastructure/fs/node-fs.js";
 import { scan } from "../src/scan.js";
 
 describe("scan: read-only", () => {

@@ -1,6 +1,6 @@
 import { isAbsolute, resolve, sep } from "node:path";
-import type { FsApi } from "./fsapi.js";
-import { isInside } from "./paths.js";
+import type { FileSystem } from "./application/ports/common.js";
+import { isInside } from "./domain/shared/paths.js";
 import { protectedReason } from "./domain/policy/protected.js";
 
 export class RootsError extends Error {
@@ -28,7 +28,7 @@ const SYSTEM_TREES = [
 /** Validate and canonicalize configured roots. Throws RootsError naming the first offender. */
 export async function validateRoots(
   rawRoots: readonly string[],
-  opts: { homes: readonly string[]; fs: FsApi; cwd?: string },
+  opts: { homes: readonly string[]; fs: FileSystem; cwd?: string },
 ): Promise<string[]> {
   if (rawRoots.length === 0) {
     throw new RootsError("no roots configured: pass at least one --root <dir> (there is no default)");

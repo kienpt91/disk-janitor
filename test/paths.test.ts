@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { mkdirSync, symlinkSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { assertCanonicalAbsolute, findSymlinkInChain, isCanonicalAbsolute, isInside, prefixes } from "../src/paths.js";
+import { assertCanonicalAbsolute, isCanonicalAbsolute, isInside, prefixes } from "../src/domain/shared/paths.js";
+import { findSymlinkInChain } from "../src/application/inspection.js";
 import { makeSandbox, testDeps, writeText } from "./helpers.js";
 
 function mulberry32(seed: number): () => number {

@@ -9,7 +9,8 @@ import type { Deps } from "./deps.js";
 import { runDockerPrune } from "./detectors/docker.js";
 import { acquireLock, LockHeldError } from "./lock.js";
 import { loadOpenFiles, openPathUnder } from "./openfiles.js";
-import { findSymlinkInChain, isCanonicalAbsolute, isInside } from "./paths.js";
+import { isCanonicalAbsolute, isInside } from "./domain/shared/paths.js";
+import { findSymlinkInChain } from "./application/inspection.js";
 import { protectedReason } from "./domain/policy/protected.js";
 import {
   ensureQuarantineDirs,

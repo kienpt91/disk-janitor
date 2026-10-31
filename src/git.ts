@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import type { CommandRunner, Deps } from "./deps.js";
-import { lstatOrNull } from "./fsapi.js";
+import { lstatOrNull } from "./application/inspection.js";
 
 // Git is told not to prompt, not to take optional locks (status must not write the index) and not
 // to run a repository-configured fsmonitor program. Repositories are untrusted input.

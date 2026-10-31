@@ -2,7 +2,7 @@ import { rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BUILD_FIRST_SEGMENTS, BUILD_OUTPUTS } from "../src/detectors/buildOutput.js";
-import { nodeFs } from "../src/fsapi.js";
+import { nodeFs } from "../src/infrastructure/fs/node-fs.js";
 import { ageTree, git, gitInit, makeSandbox, testDeps, treeHash, writeBytes, writeText } from "./helpers.js";
 import { candidatePaths, recordingFs, scanFor, skippedFor } from "./helpers-detectors.js";
 

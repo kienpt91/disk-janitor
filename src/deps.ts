@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { nodeFs, type FsApi } from "./fsapi.js";
+import type { ApplyHooks, FileSystem } from "./application/ports/common.js";
+import { nodeFs } from "./infrastructure/fs/node-fs.js";
 
 export interface CommandResult {
   /** Exit code; null when the process could not be started or was killed. */
@@ -43,16 +44,8 @@ export const runCommand: CommandRunner = (command, args, opts = {}) =>
     );
   });
 
-/** Test hooks fired by apply between validation and the actual rename. Never set from the CLI. */
-export interface ApplyHooks {
-  /** After every candidate passed validation, before the first rename. */
-  afterValidate?: () => Promise<void> | void;
-  /** Immediately before candidate `path` is renamed (after the last quick re-check). */
-  beforeRename?: (path: string) => Promise<void> | void;
-}
-
 export interface Deps {
-  fs: FsApi;
+  fs: FileSystem;
   run: CommandRunner;
   now: () => number;
   hooks?: ApplyHooks;

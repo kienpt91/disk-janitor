@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmod, constants, lstat, mkdir, open, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { isInside } from "./paths.js";
+import { isInside } from "./domain/shared/paths.js";
 
 export class StateError extends Error {
   constructor(message: string) {

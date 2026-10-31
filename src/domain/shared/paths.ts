@@ -1,5 +1,4 @@
 import { isAbsolute, normalize, sep } from "node:path";
-import type { FsApi } from "./fsapi.js";
 
 /** True when `child` is `parent` or lies below it. Both must be normalized absolute paths. */
 export function isInside(parent: string, child: string): boolean {
@@ -32,21 +31,4 @@ export function prefixes(p: string): string[] {
     out.push(cur);
   }
   return out;
-}
-
-/**
- * Walk the chain of components of `p` (excluding `p` itself when `includeSelf` is false)
- * and return the first one that is a symlink or is not a directory. Canonical paths come
- * from realpath, so any symlink found here was introduced after the path was recorded.
- */
-export async function findSymlinkInChain(fs: FsApi, p: string, includeSelf: boolean): Promise<string | null> {
-  const chain = prefixes(p);
-  const limit = includeSelf ? chain.length : chain.length - 1;
-  for (let i = 0; i < limit; i++) {
-    const cur = chain[i] as string;
-    const st = await fs.lstat(cur);
-    if (st.isSymbolicLink()) return cur;
-    if (!st.isDirectory() && i < chain.length - 1) return cur;
-  }
-  return null;
 }

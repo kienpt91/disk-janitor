@@ -1,5 +1,5 @@
 import type { CommandRunner } from "./deps.js";
-import { isInside } from "./paths.js";
+import { isInside } from "./domain/shared/paths.js";
 
 export interface OpenFileIndex {
   /** False when lsof is missing or produced nothing usable: the check was not performed. */

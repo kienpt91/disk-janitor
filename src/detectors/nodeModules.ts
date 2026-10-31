@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { newestSourceMtime } from "../analyze.js";
-import { lstatOrNull } from "../fsapi.js";
+import { lstatOrNull } from "../application/inspection.js";
 import { repoInfo, worktreeClean } from "../git.js";
-import { isInside } from "../paths.js";
+import { isInside } from "../domain/shared/paths.js";
 import { evaluateFsCandidate, skip, type ScanCtx } from "./common.js";
 
 const LOCKFILES: Array<[string, string]> = [

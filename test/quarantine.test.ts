@@ -2,7 +2,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AuditLog } from "../src/audit.js";
-import { nodeFs } from "../src/fsapi.js";
+import { nodeFs } from "../src/infrastructure/fs/node-fs.js";
 import {
   itemsDir,
   listQuarantine,

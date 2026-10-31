@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { canonicalJson, sha256Hex } from "./domain/shared/canonical.js";
 import { configCore, type Config } from "./config.js";
 import { safeJson } from "./domain/shared/escape.js";
-import { isCanonicalAbsolute } from "./paths.js";
+import { isCanonicalAbsolute } from "./domain/shared/paths.js";
 import type { ScanResult } from "./scan.js";
 import { arr, bool, int, literal, obj, opt, parseJson, SchemaError, str, union, type Parser } from "./domain/shared/schema.js";
 import { DETECTOR_IDS, PLAN_VERSION, type Candidate, type ConfigCore, type Plan } from "./domain/model/types.js";
