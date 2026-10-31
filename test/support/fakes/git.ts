@@ -2,6 +2,7 @@ import { dirname, join } from "node:path";
 import type { FileSystem } from "../../../src/application/ports/common.js";
 import type { GitPort } from "../../../src/application/ports/discovery.js";
 import type { IgnoreState, RepoInfo, WorktreeEntry } from "../../../src/domain/discovery/facts.js";
+import { commandKey } from "../../../src/domain/discovery/repo-config.js";
 import { isInside } from "../../../src/domain/shared/paths.js";
 
 export type GitFailure = "check-ignore" | "ls-files" | "status" | "worktree";
@@ -19,6 +20,7 @@ export class FakeGit implements GitPort {
   private readonly modified = new Set<string>();
   private readonly linked = new Map<string, WorktreeEntry[]>();
   private readonly failing = new Set<GitFailure>();
+  private readonly configKeys = new Map<string, string[]>();
   /** When true the git executable is "missing": only a .git-like marker above the directory is known. */
   gitMissing = false;
   readonly calls: string[] = [];
@@ -47,6 +49,11 @@ export class FakeGit implements GitPort {
     this.linked.set(repo, [...(this.linked.get(repo) ?? []), entry]);
     return this;
   }
+  /** The repository's own config defines this key (its value is irrelevant to the rules). */
+  setConfig(repo: string, key: string): this {
+    this.configKeys.set(repo, [...(this.configKeys.get(repo) ?? []), key]);
+    return this;
+  }
   fail(op: GitFailure): this {
     this.failing.add(op);
     return this;
@@ -60,6 +67,12 @@ export class FakeGit implements GitPort {
       if (up === cur) return null;
       cur = up;
     }
+  }
+
+  /** Like the real adapter: a repository whose config defines a command is never asked anything. */
+  private untrusted(path: string): string | null {
+    const top = this.repoOf(path);
+    return top ? commandKey(this.configKeys.get(top) ?? []) : null;
   }
 
   private ignoredIn(repo: string, path: string): boolean {
@@ -81,12 +94,14 @@ export class FakeGit implements GitPort {
       }
     }
     if (!top) return { state: "none" };
+    const key = this.untrusted(top);
+    if (key !== null) return { state: "untrusted", key };
     return { state: "repo", toplevel: await this.fs.realpath(top) };
   }
 
   async isIgnored(repoDir: string, path: string): Promise<IgnoreState> {
     this.calls.push(`isIgnored ${path}`);
-    if (this.failing.has("check-ignore")) return "error";
+    if (this.failing.has("check-ignore") || this.untrusted(repoDir) !== null) return "error";
     const repo = this.repoOf(repoDir);
     if (!repo) return "error";
     return this.ignoredIn(repo, path) ? "ignored" : "not-ignored";
@@ -94,13 +109,13 @@ export class FakeGit implements GitPort {
 
   async hasTrackedFiles(_repoDir: string, path: string): Promise<boolean | "error"> {
     this.calls.push(`hasTrackedFiles ${path}`);
-    if (this.failing.has("ls-files") || !this.repoOf(path)) return "error";
+    if (this.failing.has("ls-files") || !this.repoOf(path) || this.untrusted(path) !== null) return "error";
     return [...this.trackedFiles].some((f) => isInside(path, f));
   }
 
   async worktreeClean(dir: string): Promise<boolean | "error"> {
     this.calls.push(`worktreeClean ${dir}`);
-    if (this.failing.has("status")) return "error";
+    if (this.failing.has("status") || this.untrusted(dir) !== null) return "error";
     const repo = this.repoOf(dir);
     if (!repo) return "error";
     if ([...this.modified].some((f) => isInside(dir, f))) return false;
@@ -122,7 +137,7 @@ export class FakeGit implements GitPort {
   async worktrees(repoDir: string): Promise<WorktreeEntry[] | null> {
     this.calls.push(`worktrees ${repoDir}`);
     const top = this.repoOf(repoDir);
-    if (this.failing.has("worktree") || !top) return null;
+    if (this.failing.has("worktree") || !top || this.untrusted(top) !== null) return null;
     return [{ path: top, prunable: null }, ...(this.linked.get(top) ?? [])];
   }
 }

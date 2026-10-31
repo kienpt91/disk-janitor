@@ -5,6 +5,7 @@ import { isInside, isCanonicalAbsolute } from "../../src/domain/shared/paths.js"
 import { MAX_SKIPPED } from "../../src/domain/discovery/findings.js";
 import { ageTree, makeConfig, makeMixedTree, makeProject, makeSandbox, testDeps, treeHash, writeBytes, writeText } from "../support/helpers.js";
 import { candidatePaths, recordingFs, scanFor } from "../support/helpers-detectors.js";
+import { GIT_PREFIX } from "../../src/infrastructure/process/git.js";
 import { nodeFs } from "../../src/infrastructure/fs/node-fs.js";
 import { scan } from "../../src/composition/discovery.js";
 
@@ -35,8 +36,9 @@ describe("scan: read-only", () => {
     await scanFor(sb, {}, deps);
     const commands = new Set(deps.calls.map((c) => c.command));
     expect([...commands].sort()).toEqual(["docker", "git", "lsof"]);
-    const gitVerbs = new Set(deps.calls.filter((c) => c.command === "git").map((c) => c.args.filter((a) => !a.startsWith("-") && !a.startsWith("core."))[0]));
-    for (const v of gitVerbs) expect(["rev-parse", "status", "check-ignore", "ls-files", "worktree"]).toContain(v);
+    const gitVerbs = new Set(deps.calls.filter((c) => c.command === "git").map((c) => c.args[GIT_PREFIX.length]));
+    for (const v of gitVerbs) expect(["rev-parse", "config", "status", "check-ignore", "ls-files", "worktree"]).toContain(v);
+    for (const c of deps.calls.filter((c) => c.command === "git")) expect(c.args.slice(0, GIT_PREFIX.length)).toEqual([...GIT_PREFIX]);
   });
 
   it("the mixed tree yields the expected candidates and keeps unsafe projects out", async () => {

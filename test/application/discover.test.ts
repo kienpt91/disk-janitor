@@ -280,6 +280,59 @@ describe("DiscoverCandidates: node_modules", () => {
   });
 });
 
+describe("DiscoverCandidates: repositories whose config defines commands", () => {
+  const reason = (key: string) => `inside a git repository whose config defines commands (${key})`;
+
+  it("skips node_modules and build outputs without asking git anything else", async () => {
+    const nm = project(`${ROOT}/app`);
+    fs.writeFile(`${ROOT}/app/dist/x.js`, { mtimeMs: ago(30) });
+    git.initRepo(`${ROOT}/app`).ignore(`${ROOT}/app`, "node_modules").ignore(`${ROOT}/app`, "dist").setConfig(`${ROOT}/app`, "filter.evil.clean");
+    const r = await discover();
+    expect(r.fs).toEqual([]);
+    expect(skippedFor(r, nm)).toEqual([reason("filter.evil.clean")]);
+    expect(skippedFor(r, `${ROOT}/app/dist`)).toEqual([reason("filter.evil.clean")]);
+    expect(git.calls.filter((c) => !c.startsWith("repoInfo"))).toEqual([]);
+  });
+
+  it.each(["core.fsmonitor", "core.hooksPath", "core.sshCommand", "core.pager", "core.editor", "core.askPass", "core.gitProxy", "diff.x.textconv", "diff.x.command", "merge.x.driver", "include.path", "includeIf.gitdir:/x/.path", "credential.helper"])(
+    "refuses a project whose repository defines %s",
+    async (key) => {
+      const nm = project(`${ROOT}/app`);
+      git.initRepo(`${ROOT}/app`).setConfig(`${ROOT}/app`, key);
+      expect(skippedFor(await discover(), nm)).toEqual([reason(key)]);
+    },
+  );
+
+  it("escapes a hostile key in the reason", async () => {
+    const nm = project(`${ROOT}/app`);
+    git.initRepo(`${ROOT}/app`).setConfig(`${ROOT}/app`, "filter.\u001b[2J\nforged.clean");
+    const [why] = skippedFor(await discover(), nm);
+    expect(why).not.toMatch(/[\u001b\n]/);
+    expect(why).toContain("filter.");
+  });
+
+  it("does not report worktrees of such a repository", async () => {
+    fs.mkdir(`${ROOT}/repo/.git`);
+    git.initRepo(`${ROOT}/repo`).addWorktree(`${ROOT}/repo`, { path: `${ROOT}/gone`, prunable: "gone" }).setConfig(`${ROOT}/repo`, "core.pager");
+    expect((await discover({ detectors: ["git-worktrees"] })).reports).toEqual([]);
+  });
+
+  it("takes precedence over a repository root outside the configured root", async () => {
+    const nm = project(`${ROOT}/app`);
+    git.initRepo(HOME).setConfig(HOME, "core.pager");
+    expect(skippedFor(await discover(), nm)).toEqual([reason("core.pager")]);
+  });
+
+  it("a sibling project with ordinary configuration is unaffected", async () => {
+    project(`${ROOT}/evil`);
+    const good = project(`${ROOT}/good`);
+    git.initRepo(`${ROOT}/evil`).setConfig(`${ROOT}/evil`, "filter.x.clean");
+    git.initRepo(`${ROOT}/good`).ignore(`${ROOT}/good`, "node_modules").setConfig(`${ROOT}/good`, "user.name");
+    for (const f of ["package.json", "package-lock.json", "src/index.js"]) git.track(`${ROOT}/good/${f}`);
+    expect(paths(await discover())).toEqual([good]);
+  });
+});
+
 describe("DiscoverCandidates: build outputs", () => {
   const out = (dir: string, rel: string, o: { bytes?: number; age?: number } = {}): string => {
     fs.writeFile(`${dir}/${rel}/artifact.bin`, { bytes: o.bytes ?? 4096, mtimeMs: ago(o.age ?? 30) });

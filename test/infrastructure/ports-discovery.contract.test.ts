@@ -11,7 +11,7 @@ import type { CommandResult, CommandRunner } from "../../src/infrastructure/proc
 import { createDocker } from "../../src/infrastructure/process/docker.js";
 import { createGit, GIT_ENV, GIT_PREFIX } from "../../src/infrastructure/process/git.js";
 import { createLsof, LSOF_ARGS } from "../../src/infrastructure/process/lsof.js";
-import { git as runGit, makeSandbox, testDeps } from "../support/helpers.js";
+import { git as runGit, makeSandbox, testDeps, type Sandbox } from "../support/helpers.js";
 import { FakeDocker } from "../support/fakes/docker.js";
 import { FakeGit } from "../support/fakes/git.js";
 import { MemoryFileSystem } from "../support/fakes/memory-fs.js";
@@ -144,6 +144,8 @@ interface GitWorld {
   modify(path: string): Promise<void>;
   /** A linked worktree whose directory was deleted afterwards (git marks it prunable). */
   prunableWorktree(repo: string, rel: string): Promise<string>;
+  /** The repository's own config defines `key`. */
+  setConfig(repo: string, key: string, value: string): Promise<void>;
 }
 
 function fakeGitWorld(): GitWorld {
@@ -186,6 +188,9 @@ function fakeGitWorld(): GitWorld {
       const path = join(dirname(repo), rel);
       fake.addWorktree(repo, { path, prunable: "gitdir file points to non-existent location" });
       return path;
+    },
+    async setConfig(repo, key) {
+      fake.setConfig(repo, key);
     },
   };
   return w;
@@ -236,6 +241,9 @@ function realGitWorld(): GitWorld {
       out(repo, "worktree", "add", "-q", path, "-b", `wt-${rel}`);
       rmSync(path, { recursive: true, force: true });
       return path;
+    },
+    async setConfig(repo, key, value) {
+      out(repo, "config", "--local", key, value);
     },
   };
 }
@@ -427,11 +435,74 @@ describe.each([
       expect(await w.port.worktrees(await w.plain("plain"))).toBeNull();
     });
   });
+
+  describe("untrusted repositories (their own config defines a command)", () => {
+    const HOSTILE: Array<[string, string]> = [
+      ["filter.evil.clean", "touch /nonexistent/x; cat"],
+      ["filter.evil.smudge", "cat"],
+      ["filter.evil.process", "cat"],
+      ["core.fsmonitor", "/bin/true"],
+      ["core.hooksPath", "/tmp/hooks"],
+      ["core.sshCommand", "ssh -o x"],
+      ["core.pager", "less"],
+      ["core.editor", "vi"],
+      ["core.askPass", "/bin/true"],
+      ["core.gitProxy", "/bin/true"],
+      ["diff.word.textconv", "cat"],
+      ["diff.word.command", "cat"],
+      ["merge.custom.driver", "cat %A"],
+      ["include.path", "../other"],
+      ["includeIf.gitdir:/x/.path", "../other"],
+      ["credential.helper", "store"],
+      ["credential.https://example.com.helper", "store"],
+    ];
+
+    it.each(HOSTILE)("refuses a repository whose config defines %s and names the key", async (key, value) => {
+      const w = make();
+      const repo = await w.repo("p");
+      await w.setConfig(repo, key, value);
+      const info = await w.port.repoInfo(repo, w.root);
+      expect(info.state).toBe("untrusted");
+      expect(info.state === "untrusted" && info.key.toLowerCase()).toBe(key.toLowerCase());
+    });
+
+    it("refuses from any subdirectory of the repository", async () => {
+      const w = make();
+      const repo = await w.repo("p");
+      await w.write(join(repo, "src", "f"));
+      await w.setConfig(repo, "filter.evil.clean", "cat");
+      expect((await w.port.repoInfo(join(repo, "src"), w.root)).state).toBe("untrusted");
+    });
+
+    it("answers no question about such a repository, even when asked directly", async () => {
+      const w = make();
+      const repo = await w.repo("p");
+      await w.write(join(repo, "dist", "a.js"));
+      await w.ignore(repo, "dist");
+      await w.setConfig(repo, "core.pager", "less");
+      expect(await w.port.isIgnored(repo, join(repo, "dist"))).toBe("error");
+      expect(await w.port.hasTrackedFiles(repo, join(repo, "dist"))).toBe("error");
+      expect(await w.port.worktreeClean(repo)).toBe("error");
+      expect(await w.port.worktrees(repo)).toBeNull();
+    });
+
+    it("still trusts a repository with ordinary configuration", async () => {
+      const w = make();
+      const repo = await w.repo("p");
+      await w.setConfig(repo, "user.name", "someone");
+      await w.setConfig(repo, "remote.origin.url", "https://example.invalid/r.git");
+      await w.setConfig(repo, "diff.algorithm", "patience");
+      await w.setConfig(repo, "merge.ff", "false");
+      expect(await w.port.repoInfo(repo, w.root)).toEqual({ state: "repo", toplevel: repo });
+      expect(await w.port.worktreeClean(repo)).toBe(true);
+    });
+  });
 });
 
 describe("git CLI adapter hardening", () => {
-  function recording(): { run: CommandRunner; calls: Array<{ command: string; args: readonly string[]; cwd?: string | undefined; env?: Record<string, string> | undefined; timeoutMs?: number | undefined }> } {
-    const calls: ReturnType<typeof recording>["calls"] = [];
+  type Call = { command: string; args: readonly string[]; cwd?: string | undefined; env?: Record<string, string> | undefined; timeoutMs?: number | undefined };
+  function recording(): { run: CommandRunner; calls: Call[] } {
+    const calls: Call[] = [];
     const run: CommandRunner = (command, args, opts) => {
       calls.push({ command, args, cwd: opts?.cwd, env: opts?.env, timeoutMs: opts?.timeoutMs });
       return realRun(command, args, opts);
@@ -439,12 +510,41 @@ describe("git CLI adapter hardening", () => {
     return { run, calls };
   }
 
-  it("prefixes every command with the hardening options and passes a prompt-free environment", async () => {
+  const PREFIX = [
+    "-c",
+    "core.attributesFile=/dev/null",
+    "-c",
+    "core.excludesFile=/dev/null",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.untrackedCache=false",
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "diff.external=",
+  ];
+  const ENV = {
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_ATTR_NOSYSTEM: "1",
+    GIT_ASKPASS: "/bin/false",
+  };
+
+  function plainRepo(): { sb: Sandbox; repo: string } {
     const sb = makeSandbox();
     const repo = join(sb.base, "r");
     mkdirSync(repo, { recursive: true });
     runGit(repo, "init", "-q", "-b", "main");
     runGit(repo, "commit", "-q", "--allow-empty", "-m", "i");
+    return { sb, repo };
+  }
+
+  it("prefixes every command with the hardening options and passes the locked-down environment", async () => {
+    const { sb, repo } = plainRepo();
     const { run, calls } = recording();
     const port = createGit(run, nodeFs);
     await port.repoInfo(repo, sb.base);
@@ -452,8 +552,9 @@ describe("git CLI adapter hardening", () => {
     await port.hasTrackedFiles(repo, join(repo, "x"));
     await port.worktreeClean(repo);
     await port.worktrees(repo);
-    expect(calls.map((c) => c.args.slice(4))).toEqual([
+    expect(calls.map((c) => c.args.slice(PREFIX.length))).toEqual([
       ["rev-parse", "--show-toplevel"],
+      ["config", "--list", "-z", "--show-scope", "--no-includes"],
       ["check-ignore", "-q", "--", join(repo, "x")],
       ["ls-files", "-z", "--cached", "--", join(repo, "x")],
       ["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--", "."],
@@ -461,35 +562,74 @@ describe("git CLI adapter hardening", () => {
     ]);
     for (const c of calls) {
       expect(c.command).toBe("git");
-      expect(c.args.slice(0, 4)).toEqual(["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"]);
+      expect(c.args.slice(0, PREFIX.length)).toEqual(PREFIX);
       expect(c.cwd).toBe(repo);
       expect(c.timeoutMs).toBe(60_000);
-      expect(c.env).toEqual({ GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1", GIT_ASKPASS: "/bin/false" });
+      expect(c.env).toEqual(ENV);
     }
-    expect([...GIT_PREFIX]).toEqual(["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"]);
-    expect(GIT_ENV["GIT_OPTIONAL_LOCKS"]).toBe("0");
+    expect([...GIT_PREFIX]).toEqual(PREFIX);
+    expect({ ...GIT_ENV }).toEqual(ENV);
   });
 
-  it("never runs a repository-configured fsmonitor program", async () => {
-    const sb = makeSandbox();
-    const repo = join(sb.base, "r");
+  it("reads the configuration once per directory per adapter, and never executes anything to do so", async () => {
+    const { repo } = plainRepo();
+    const { run, calls } = recording();
+    const port = createGit(run, nodeFs);
+    await port.worktreeClean(repo);
+    await port.worktreeClean(repo);
+    await port.isIgnored(repo, join(repo, "a"));
+    expect(calls.filter((c) => c.args.includes("config"))).toHaveLength(1);
+  });
+
+  it("covers config.worktree: a command defined there is refused", async () => {
+    const { sb, repo } = plainRepo();
+    runGit(repo, "config", "--local", "extensions.worktreeConfig", "true");
+    expect(await createGit(realRun, nodeFs).repoInfo(repo, sb.base)).toEqual({ state: "repo", toplevel: repo });
+    runGit(repo, "config", "--worktree", "filter.evil.clean", "cat");
+    expect(await createGit(realRun, nodeFs).repoInfo(repo, sb.base)).toEqual({ state: "untrusted", key: "filter.evil.clean" });
+  });
+
+  it("treats a repository whose config cannot be read as unavailable", async () => {
+    const run: CommandRunner = async (_c, args) =>
+      args.includes("rev-parse") ? { code: 0, stdout: "/r\n", stderr: "" } : { code: 128, stdout: "", stderr: "fatal: bad config line" };
+    expect(await createGit(run, new MemoryFileSystem().mkdir("/r")).repoInfo("/r", "/")).toEqual({ state: "unavailable" });
+  });
+
+  it("never runs a repository-configured fsmonitor program: the repository is refused instead", async () => {
+    const { sb, repo } = plainRepo();
     const marker = join(sb.base, "fsmonitor-ran");
-    mkdirSync(repo, { recursive: true });
-    runGit(repo, "init", "-q", "-b", "main");
-    runGit(repo, "commit", "-q", "--allow-empty", "-m", "i");
     writeFileSync(join(repo, ".git", "hook.sh"), `#!/bin/sh\ntouch '${marker}'\nprintf '\\0'\n`, { mode: 0o755 });
     runGit(repo, "config", "core.fsmonitor", join(repo, ".git", "hook.sh"));
 
-    expect(await createGit(realRun, nodeFs).worktreeClean(repo)).toBe(true);
+    const port = createGit(realRun, nodeFs);
+    expect(await port.repoInfo(repo, sb.base)).toEqual({ state: "untrusted", key: "core.fsmonitor" });
+    expect(await port.worktreeClean(repo)).toBe("error");
     expect(existsSync(marker)).toBe(false);
 
-    // sanity: without the hardening the configured program does run, so the check above means something
+    // sanity: plain git does run the configured program, so the assertions above mean something
     execFileSync("git", ["status", "--porcelain"], { cwd: repo, env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" }, stdio: "ignore" });
     expect(existsSync(marker)).toBe(true);
   });
 
+  it("does not consult the user's global gitignore: a path ignored only there is not ignored", async () => {
+    const { sb, repo } = plainRepo();
+    const excludes = join(sb.base, "global-ignore");
+    writeFileSync(excludes, "ignored-by-global/\n");
+    mkdirSync(join(repo, "ignored-by-global"));
+    writeFileSync(join(repo, "ignored-by-global", "f"), "x");
+    // control: git configured with that excludes file does ignore it
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" };
+    execFileSync("git", ["-c", `core.excludesFile=${excludes}`, "check-ignore", "-q", join(repo, "ignored-by-global")], { cwd: repo, env });
+    const withUserConfig: CommandRunner = (command, args, opts) => realRun(command, args, { ...opts, env: { ...opts?.env, HOME: sb.base, XDG_CONFIG_HOME: sb.base } });
+    mkdirSync(join(sb.base, "git"), { recursive: true });
+    writeFileSync(join(sb.base, "git", "config"), `[core]\n\texcludesFile = ${excludes}\n`);
+    writeFileSync(join(sb.base, ".gitconfig"), `[core]\n\texcludesFile = ${excludes}\n`);
+    expect(await createGit(withUserConfig, nodeFs).isIgnored(repo, join(repo, "ignored-by-global"))).toBe("not-ignored");
+  });
+
   it("answers from exit codes: 0 ignored, 1 not ignored, anything else an error", async () => {
-    const script = (code: number | null): CommandRunner => async () => ({ code, stdout: "", stderr: "" });
+    const script = (code: number | null): CommandRunner => async (_c, args) =>
+      args.includes("check-ignore") ? { code, stdout: "", stderr: "" } : { code: 0, stdout: "", stderr: "" };
     const dummy = new MemoryFileSystem();
     expect(await createGit(script(0), dummy).isIgnored("/r", "/r/x")).toBe("ignored");
     expect(await createGit(script(1), dummy).isIgnored("/r", "/r/x")).toBe("not-ignored");
