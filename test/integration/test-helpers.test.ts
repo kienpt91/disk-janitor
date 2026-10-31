@@ -1,7 +1,8 @@
-import { mkdirSync, rmSync, writeFileSync, lstatSync, readdirSync, utimesSync, lutimesSync, statSync, symlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, readFileSync, rmSync, writeFileSync, lstatSync, readdirSync, utimesSync, lutimesSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ageTree, DAY, makeSandbox, type AgeOps } from "../support/helpers.js";
+import { ageTree, DAY, GIT_ENV, git, gitInit, makeSandbox, type AgeOps } from "../support/helpers.js";
 
 const real: AgeOps = { lstat: (p) => lstatSync(p), readdir: (p) => readdirSync(p), utimes: utimesSync, lutimes: lutimesSync };
 const enoent = (p: string) => Object.assign(new Error(`ENOENT: no such file or directory, lstat '${p}'`), { code: "ENOENT" });
@@ -105,5 +106,47 @@ describe("ageTree tolerates entries that vanish while it walks (git background m
     writeFileSync(join(dir, "sub", "f"), "1");
     ageTree(dir, 5, NOW);
     for (const p of [dir, join(dir, "sub"), join(dir, "sub", "f")]) expect(statSync(p).mtimeMs).toBe(NOW - 5 * DAY);
+  });
+});
+
+describe("test repositories never run git background maintenance", () => {
+  const maintenanceChildren = (trace: string): string[] =>
+    trace
+      .split("\n")
+      .filter((l) => l.startsWith("{"))
+      .map((l) => JSON.parse(l) as { event: string; argv?: string[] })
+      .filter((e) => e.event === "child_start" && e.argv?.some((a) => a === "maintenance" || a === "gc"))
+      .map((e) => (e.argv as string[]).join(" "));
+
+  function commitWithTrace(extraEnv: Record<string, string | undefined>, unsetKeys: string[] = []): string[] {
+    const sb = makeSandbox();
+    const dir = join(sb.base, "repo");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "f.txt"), "x");
+    const trace = join(sb.base, "trace.json");
+    const env: Record<string, string | undefined> = { ...process.env, ...GIT_ENV, ...extraEnv, GIT_TRACE2_EVENT: trace };
+    for (const k of unsetKeys) delete env[k];
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir, env });
+    execFileSync("git", ["add", "-A"], { cwd: dir, env });
+    execFileSync("git", ["commit", "-q", "-m", "x"], { cwd: dir, env });
+    return maintenanceChildren(readFileSync(trace, "utf8"));
+  }
+
+  it("control: without the test configuration a commit starts `git maintenance run --auto`", () => {
+    const children = commitWithTrace({}, ["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1"]);
+    expect(children.some((c) => c.includes("maintenance"))).toBe(true);
+  });
+
+  it("with the shared test environment a commit starts neither maintenance nor gc", () => {
+    expect(commitWithTrace({})).toEqual([]);
+  });
+
+  it("the helper that all git-backed tests use (gitInit) carries the same configuration", () => {
+    const sb = makeSandbox();
+    const dir = join(sb.base, "repo");
+    mkdirSync(dir);
+    gitInit(dir, "node_modules\n");
+    expect(git(dir, "config", "--get", "gc.auto").trim()).toBe("0");
+    expect(git(dir, "config", "--get", "maintenance.auto").trim()).toBe("false");
   });
 });

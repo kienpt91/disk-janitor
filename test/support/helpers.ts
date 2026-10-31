@@ -109,13 +109,23 @@ export function treeHash(path: string): string {
   return h.digest("hex");
 }
 
-const GIT_ENV = {
+/**
+ * Environment for every git process the tests start. Background maintenance (`gc --auto`,
+ * `maintenance run --auto`, triggered after a commit) is switched off, because it creates and removes
+ * files such as objects/maintenance.lock in the temporary repositories while tests are walking them.
+ */
+export const GIT_ENV = {
   GIT_AUTHOR_NAME: "test",
   GIT_AUTHOR_EMAIL: "test@example.invalid",
   GIT_COMMITTER_NAME: "test",
   GIT_COMMITTER_EMAIL: "test@example.invalid",
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_NOSYSTEM: "1",
+  GIT_CONFIG_COUNT: "2",
+  GIT_CONFIG_KEY_0: "gc.auto",
+  GIT_CONFIG_VALUE_0: "0",
+  GIT_CONFIG_KEY_1: "maintenance.auto",
+  GIT_CONFIG_VALUE_1: "false",
 };
 
 export function git(cwd: string, ...args: string[]): string {
