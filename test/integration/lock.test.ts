@@ -190,3 +190,87 @@ describe("withLock", () => {
     await h.release();
   });
 });
+
+describe("stale lock takeover is atomic", () => {
+  const gate = <T = void>() => {
+    let open!: (v: T) => void;
+    const promise = new Promise<T>((r) => (open = r));
+    return { promise, open };
+  };
+
+  it("a waiter that judged the lock stale before another process took it over does not remove the new holder's lock", async () => {
+    const sb = makeSandbox();
+    const path = join(sb.base, "l.lock");
+    writeFileSync(path, lockBody({ pid: deadPid(), host: hostname() }));
+
+    const reachedStale = gate();
+    const letBContinue = gate();
+    // B reads the stale lock, then stalls before acting on that observation
+    const b = acquireLock(path, {
+      timeoutMs: 0,
+      onStale: async () => {
+        reachedStale.open();
+        await letBContinue.promise;
+      },
+    }).then(
+      (h) => ({ ok: true as const, h }),
+      (e: unknown) => ({ ok: false as const, e }),
+    );
+    await reachedStale.promise;
+
+    // A takes over the stale lock completely and now legitimately holds it
+    const a = await acquireLock(path, { timeoutMs: 0 });
+    const heldBody = readFileSync(path, "utf8");
+    expect(JSON.parse(heldBody)).toMatchObject({ pid: process.pid });
+
+    letBContinue.open();
+    const result = await b;
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.e).toBeInstanceOf(LockHeldError);
+    // A's lock was not unlinked or replaced by B
+    expect(readFileSync(path, "utf8")).toBe(heldBody);
+    await a.release();
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("many waiters racing on one stale lock end with exactly one holder at a time (no lost updates)", async () => {
+    const sb = makeSandbox();
+    const path = join(sb.base, "l.lock");
+    const counter = join(sb.base, "counter");
+    writeFileSync(counter, "0");
+    writeFileSync(path, lockBody({ pid: deadPid(), host: hostname() }));
+    const worker = async () => {
+      const h = await acquireLock(path, { timeoutMs: 10_000 });
+      const n = Number(readFileSync(counter, "utf8"));
+      await new Promise((r) => setTimeout(r, 2));
+      writeFileSync(counter, String(n + 1));
+      await h.release();
+    };
+    await Promise.all(Array.from({ length: 25 }, worker));
+    expect(readFileSync(counter, "utf8")).toBe("25");
+    expect(existsSync(path)).toBe(false);
+    expect(existsSync(`${path}.takeover`)).toBe(false);
+  });
+
+  it("a takeover gate abandoned by a crashed process does not block later takeovers", async () => {
+    const sb = makeSandbox();
+    const path = join(sb.base, "l.lock");
+    writeFileSync(path, lockBody({ pid: deadPid(), host: hostname() }));
+    writeFileSync(`${path}.takeover`, "crashed");
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(`${path}.takeover`, old, old);
+    const h = await acquireLock(path, { timeoutMs: 5_000 });
+    expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({ pid: process.pid });
+    await h.release();
+  });
+
+  it("a live takeover gate makes a competing waiter wait instead of removing anything", async () => {
+    const sb = makeSandbox();
+    const path = join(sb.base, "l.lock");
+    const stale = lockBody({ pid: deadPid(), host: hostname() });
+    writeFileSync(path, stale);
+    writeFileSync(`${path}.takeover`, "someone else is taking over");
+    await expect(acquireLock(path, { timeoutMs: 0 })).rejects.toBeInstanceOf(LockHeldError);
+    expect(readFileSync(path, "utf8")).toBe(stale);
+  });
+});

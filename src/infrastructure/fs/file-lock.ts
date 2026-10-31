@@ -17,11 +17,68 @@ function alive(pid: number): boolean {
   }
 }
 
+const GATE_STALE_MS = 5_000;
+const BODY_STALE_MS = 60_000;
+
+/** Is the lock file at `path` abandoned? A dead pid on this host, or an unreadable body older than a minute. */
+async function isStale(path: string): Promise<boolean> {
+  try {
+    const cur = JSON.parse(await readFile(path, "utf8")) as { pid?: unknown; host?: unknown };
+    return typeof cur.pid === "number" && cur.host === hostname() && !alive(cur.pid);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return false;
+    // unreadable or half-written: stale only when old
+    try {
+      return Date.now() - (await stat(path)).mtimeMs > BODY_STALE_MS;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
+ * Remove an abandoned lock without ever removing a live one. Only the holder of the takeover gate
+ * (`<path>.takeover`, created with O_EXCL) may unlink the lock, and it re-checks staleness inside
+ * the gate: a waiter that judged the lock stale earlier, while someone else completed a takeover in
+ * the meantime, finds a live lock and leaves it alone. A gate left behind by a crashed process is
+ * removed once it is older than a few seconds.
+ */
+async function removeStaleLock(path: string): Promise<boolean> {
+  const gate = `${path}.takeover`;
+  let fh;
+  try {
+    fh = await open(gate, "wx", 0o600);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    try {
+      if (Date.now() - (await stat(gate)).mtimeMs > GATE_STALE_MS) await unlink(gate);
+    } catch {
+      // someone else removed it
+    }
+    return false;
+  }
+  try {
+    await fh.close();
+    if (!(await isStale(path))) return false;
+    await unlink(path).catch(() => undefined);
+    return true;
+  } finally {
+    await unlink(gate).catch(() => undefined);
+  }
+}
+
 /**
  * Exclusive lock file (created with O_EXCL). A lock left by a process on this host that no longer
- * exists is stolen; anything else counts as held. timeoutMs 0 fails immediately.
+ * exists is taken over atomically (see removeStaleLock); anything else counts as held. timeoutMs 0
+ * fails immediately.
  */
-export async function acquireLock(path: string, opts: { timeoutMs?: number } = {}): Promise<LockHandle> {
+export interface AcquireOptions {
+  timeoutMs?: number;
+  /** Test seam: awaited after a lock was judged stale and before anything is done about it. */
+  onStale?: () => Promise<void>;
+}
+
+export async function acquireLock(path: string, opts: AcquireOptions = {}): Promise<LockHandle> {
   const deadline = Date.now() + (opts.timeoutMs ?? 0);
   const token = randomBytes(8).toString("hex");
   const body = JSON.stringify({ pid: process.pid, host: hostname(), token, since: new Date().toISOString() });
@@ -46,22 +103,9 @@ export async function acquireLock(path: string, opts: { timeoutMs?: number } = {
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
     }
-    let stale = false;
-    try {
-      const text = await readFile(path, "utf8");
-      const cur = JSON.parse(text) as { pid?: unknown; host?: unknown };
-      stale = typeof cur.pid === "number" && cur.host === hostname() && !alive(cur.pid);
-    } catch {
-      // unreadable or half-written: stale only when old
-      try {
-        stale = Date.now() - (await stat(path)).mtimeMs > 60_000;
-      } catch {
-        stale = false;
-      }
-    }
-    if (stale) {
-      await unlink(path).catch(() => undefined);
-      continue;
+    if (await isStale(path)) {
+      await opts.onStale?.();
+      if (await removeStaleLock(path)) continue;
     }
     if (Date.now() >= deadline) throw new LockHeldError(`another disk-janitor operation holds the lock (${path})`);
     await sleep(25);
