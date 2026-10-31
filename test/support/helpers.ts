@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, utimesSync, writeFileSync, lutimesSync } from "node:fs";
+import { lstatSync, type Stats, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, utimesSync, writeFileSync, lutimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach } from "vitest";
@@ -62,16 +62,36 @@ export function writeText(path: string, text: string): void {
   writeFileSync(path, text);
 }
 
-/** Set atime/mtime of every entry below (and including) `path` to `days` days before `now`. */
-export function ageTree(path: string, days: number, now = Date.now()): void {
+/** The file system operations ageTree needs; injectable so tests can make entries vanish mid-walk. */
+export interface AgeOps {
+  lstat(path: string): Stats;
+  readdir(path: string): string[];
+  utimes(path: string, atime: Date, mtime: Date): void;
+  lutimes(path: string, atime: Date, mtime: Date): void;
+}
+
+const realAgeOps: AgeOps = { lstat: (p) => lstatSync(p), readdir: (p) => readdirSync(p), utimes: utimesSync, lutimes: lutimesSync };
+
+const vanished = (e: unknown): boolean => (e as NodeJS.ErrnoException).code === "ENOENT";
+
+/**
+ * Set atime/mtime of every entry below (and including) `path` to `days` days before `now`.
+ * Entries that vanish while the walk is in progress (a git lock file removed by background
+ * maintenance, say) are skipped; any other error, and a missing root, is still an error.
+ */
+export function ageTree(path: string, days: number, now = Date.now(), ops: AgeOps = realAgeOps): void {
   const t = new Date(now - days * DAY);
-  const walk = (p: string): void => {
-    const st = lstatSync(p);
-    if (st.isDirectory()) for (const n of readdirSync(p)) walk(join(p, n));
-    if (st.isSymbolicLink()) lutimesSync(p, t, t);
-    else utimesSync(p, t, t);
+  const walk = (p: string, isRoot: boolean): void => {
+    try {
+      const st = ops.lstat(p);
+      if (st.isDirectory()) for (const n of ops.readdir(p)) walk(join(p, n), false);
+      if (st.isSymbolicLink()) ops.lutimes(p, t, t);
+      else ops.utimes(p, t, t);
+    } catch (e) {
+      if (isRoot || !vanished(e)) throw e;
+    }
   };
-  walk(path);
+  walk(path, true);
 }
 
 /** Deterministic content hash of a tree: names, types, file bytes, symlink targets. */
