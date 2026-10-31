@@ -1,5 +1,5 @@
 import type { Config } from "../config.js";
-import type { Deps } from "../deps.js";
+import type { Deps } from "../composition/deps.js";
 import { analyzeTree } from "../analyze.js";
 import { openPathUnder, type OpenFileIndex } from "../openfiles.js";
 import { protectedReason } from "../domain/policy/protected.js";

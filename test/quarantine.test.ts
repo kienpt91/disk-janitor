@@ -19,7 +19,7 @@ import {
   type ManifestEntry,
   type PurgeItem,
 } from "../src/quarantine.js";
-import type { Deps } from "../src/deps.js";
+import type { Deps } from "../src/composition/deps.js";
 import type { State } from "../src/state.js";
 import { approveAsHuman, DAY, makeSandbox, planFor, testDeps, treeHash, writeText, type Planned, type Sandbox } from "./helpers.js";
 import { eventNames, makeThree, readEvents, runApply, storedItem } from "./helpers-apply.js";

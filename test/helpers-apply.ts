@@ -9,7 +9,7 @@ import type { FsCandidate, Plan } from "../src/domain/model/types.js";
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { makeProject, type Planned, type Sandbox } from "./helpers.js";
-import type { Deps } from "../src/deps.js";
+import type { Deps } from "../src/composition/deps.js";
 
 /** Small deterministic PRNG (mulberry32) for property-style tests. */
 export function mulberry32(seed: number): () => number {

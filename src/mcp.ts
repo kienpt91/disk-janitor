@@ -4,7 +4,7 @@ import { z } from "zod";
 import { applyPlan, ApplyError } from "./apply.js";
 import { AuditLog } from "./audit.js";
 import { resolveConfig, type RawConfig } from "./config.js";
-import { defaultDeps, type Deps } from "./deps.js";
+import { defaultDeps, type Deps } from "./composition/deps.js";
 import { escapeText, frameUntrusted, safeJson } from "./domain/shared/escape.js";
 import { createPlan, loadPlan, openStateFor } from "./ops.js";
 import { PLAN_ID_RE } from "./plan.js";

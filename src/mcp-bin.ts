@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { parseArgs } from "node:util";
 import { resolve } from "node:path";
 import { loadConfigFile, resolveConfig, type RawConfig } from "./config.js";
-import { defaultDeps } from "./deps.js";
+import { defaultDeps } from "./composition/deps.js";
 import { escapeText } from "./domain/shared/escape.js";
 import { createMcpServer } from "./mcp.js";
 

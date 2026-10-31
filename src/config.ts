@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { canonicalJson, sha256Hex } from "./domain/shared/canonical.js";
-import type { Deps } from "./deps.js";
+import type { Deps } from "./composition/deps.js";
 import { validateRoots } from "./roots.js";
 import { arr, bool, int, literal, obj, opt, parseJson, str, type Infer } from "./domain/shared/schema.js";
 import { DETECTOR_IDS, type ConfigCore, type DetectorId } from "./domain/model/types.js";

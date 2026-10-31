@@ -1,4 +1,4 @@
-import type { CommandRunner } from "./deps.js";
+import type { CommandRunner } from "./infrastructure/process/command-runner.js";
 import { isInside } from "./domain/shared/paths.js";
 
 export interface OpenFileIndex {

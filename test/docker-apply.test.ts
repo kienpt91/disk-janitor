@@ -5,7 +5,7 @@ import { DOCKER_COMMANDS } from "../src/detectors/docker.js";
 import { computePlanDigest } from "../src/plan.js";
 import type { DockerCandidate, Plan } from "../src/domain/model/types.js";
 import { approveAsHuman, makeSandbox, planFor, testDeps, treeHash, writeText } from "./helpers.js";
-import type { CommandResult } from "../src/deps.js";
+import type { CommandResult } from "../src/infrastructure/process/command-runner.js";
 import { catchApply, eventNames, fsCandidates, makeThree, readEvents, runApply } from "./helpers-apply.js";
 
 const DF = [

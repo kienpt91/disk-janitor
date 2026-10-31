@@ -4,7 +4,7 @@ import { join, sep } from "node:path";
 import type { AuditLog } from "./audit.js";
 import { baseFor } from "./bases.js";
 import { canonicalJson } from "./domain/shared/canonical.js";
-import type { Deps } from "./deps.js";
+import type { Deps } from "./composition/deps.js";
 import { safeJson } from "./domain/shared/escape.js";
 import { isCanonicalAbsolute } from "./domain/shared/paths.js";
 import { findSymlinkInChain } from "./application/inspection.js";

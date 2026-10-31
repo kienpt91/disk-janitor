@@ -1,6 +1,4 @@
 import { execFile } from "node:child_process";
-import type { ApplyHooks, FileSystem } from "./application/ports/common.js";
-import { nodeFs } from "./infrastructure/fs/node-fs.js";
 
 export interface CommandResult {
   /** Exit code; null when the process could not be started or was killed. */
@@ -43,14 +41,3 @@ export const runCommand: CommandRunner = (command, args, opts = {}) =>
       },
     );
   });
-
-export interface Deps {
-  fs: FileSystem;
-  run: CommandRunner;
-  now: () => number;
-  hooks?: ApplyHooks;
-}
-
-export function defaultDeps(): Deps {
-  return { fs: nodeFs, run: runCommand, now: () => Date.now() };
-}

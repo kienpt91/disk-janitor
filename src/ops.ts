@@ -4,7 +4,7 @@ import { constants } from "node:fs";
 import { join, resolve } from "node:path";
 import { AuditLog } from "./audit.js";
 import { configCore, loadConfigFile, resolveConfig, type Config, type RawConfig } from "./config.js";
-import type { Deps } from "./deps.js";
+import type { Deps } from "./composition/deps.js";
 import { buildPlan, MAX_PLAN_BYTES, parsePlan, PLAN_ID_RE, writePlanFile } from "./plan.js";
 import { scan, type ScanResult } from "./scan.js";
 import { openState, type State } from "./state.js";

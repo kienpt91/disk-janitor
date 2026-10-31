@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { Config } from "./config.js";
-import type { Deps } from "./deps.js";
+import type { Deps } from "./composition/deps.js";
 import { lstatOrNull } from "./application/inspection.js";
 import { loadOpenFiles } from "./openfiles.js";
 import { isInside } from "./domain/shared/paths.js";

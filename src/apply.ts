@@ -5,7 +5,7 @@ import { consumeApproval, verifyApproval } from "./approval.js";
 import { AuditLog } from "./audit.js";
 import { baseFor } from "./bases.js";
 import type { Config } from "./config.js";
-import type { Deps } from "./deps.js";
+import type { Deps } from "./composition/deps.js";
 import { runDockerPrune } from "./detectors/docker.js";
 import { acquireLock, LockHeldError } from "./lock.js";
 import { loadOpenFiles, openPathUnder } from "./openfiles.js";

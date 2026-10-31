@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { applyPlan } from "../src/apply.js";
 import { AuditLog } from "../src/audit.js";
-import type { Deps } from "../src/deps.js";
+import type { Deps } from "../src/composition/deps.js";
 import { nodeFs } from "../src/infrastructure/fs/node-fs.js";
 import { computePlanDigest } from "../src/plan.js";
 import { readManifest, restore } from "../src/quarantine.js";

@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path";
-import type { CommandRunner, Deps } from "./deps.js";
+import type { CommandRunner } from "./infrastructure/process/command-runner.js";
+import type { Deps } from "./composition/deps.js";
 import { lstatOrNull } from "./application/inspection.js";
 
 // Git is told not to prompt, not to take optional locks (status must not write the index) and not

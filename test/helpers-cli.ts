@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runCli, type CliIO } from "../src/cli.js";
-import type { Deps } from "../src/deps.js";
+import type { Deps } from "../src/composition/deps.js";
 import { parsePlan } from "../src/plan.js";
 import { openState, type State } from "../src/state.js";
 import type { Plan } from "../src/domain/model/types.js";

@@ -7,7 +7,7 @@ import { applyPlan, ApplyError } from "./apply.js";
 import { issueApproval, DEFAULT_VALIDITY_MS, MAX_VALIDITY_MS } from "./approval.js";
 import { AuditLog } from "./audit.js";
 import { defaultStateDir, loadConfigFile, resolveConfig, type RawConfig } from "./config.js";
-import { defaultDeps, type Deps } from "./deps.js";
+import { defaultDeps, type Deps } from "./composition/deps.js";
 import { escapeText, safeJson } from "./domain/shared/escape.js";
 import { describeReport, formatBytes, formatTime, renderPlanSummary, renderScan, describeCandidate } from "./format.js";
 import { assertHumanSession, confirmByTyping, digestPrefix, HumanRequiredError, type HumanIO } from "./human.js";
