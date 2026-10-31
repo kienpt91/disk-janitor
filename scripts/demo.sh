@@ -95,12 +95,23 @@ printf '%s\n' "$(echo "$DIGEST" | cut -c1-8)" | script -qec "$CLI approve $PLAN 
 
 run apply "$PLAN" $OPTS
 run status --state-dir "$DEMO/state"
-echo; echo "# the same approval cannot be replayed:"
+echo; echo "# the approval was single-use, so the same plan cannot be applied again:"
 run apply "$PLAN" $OPTS || true
-run restore "$PLAN" --state-dir "$DEMO/state" --dry-run
-run purge --state-dir "$DEMO/state" --dry-run
-run restore "$PLAN" --state-dir "$DEMO/state"
-run audit --state-dir "$DEMO/state" | cut -c1-160
+
+echo; echo "# undo one item by path:"
+run restore "$P/webapp/node_modules" --state-dir "$DEMO/state"
+echo; echo "# what would a purge delete? (TTL 0 only for this demo; the default is 7 days)"
+run purge --state-dir "$DEMO/state" --ttl-days 0 --dry-run
+echo; echo "# purge is human-only as well: without a terminal it refuses"
+run purge --state-dir "$DEMO/state" --ttl-days 0 </dev/null || true
+CODE=$($CLI purge --state-dir "$DEMO/state" --ttl-days 0 --dry-run | sed -n 's/.*real purge: \([0-9a-f]*\)).*/\1/p')
+echo; echo "# a human types the confirmation code at a real terminal:"
+echo "\$ disk-janitor purge --ttl-days 0"
+printf '%s\n' "$CODE" | script -qec "$CLI purge --state-dir $DEMO/state --ttl-days 0" /dev/null | tr -d '\r'
+run status --state-dir "$DEMO/state"
+echo; echo "# the audit log (first 160 columns of each line) and its chain check:"
+run audit --state-dir "$DEMO/state" 2>&1 | cut -c1-160 | tail -n 8
 run doctor --state-dir "$DEMO/state" --root "$P"
-echo; echo "# tripwires:"
+echo; echo "# tripwires (must all still be there):"
 cat "$HOME/Documents/taxes.txt" "$HOME/.ssh/id_demo" "$DEMO/victim/keep.txt"
+ls "$P/webapp"

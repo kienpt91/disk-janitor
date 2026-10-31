@@ -356,7 +356,7 @@ async function cmdPurge(values: Values, io: CliIO, deps: Deps): Promise<number> 
   const lines = [`purge would permanently delete ${items.length} quarantined item(s), ${formatBytes(total)}:`];
   for (const i of items) lines.push(`  ${formatBytes(i.entry.size).padStart(10)}  ${i.ageDays}d in quarantine  ${escapeText(i.entry.originalPath, 400)}  (${i.planId})`);
   if (values["dry-run"]) {
-    io.out(lines.join("\n") + "\n(dry run: nothing deleted)\n");
+    io.out(lines.join("\n") + `\n(dry run: nothing deleted; confirmation code for a real purge: ${digestPrefix(purgeSetDigest(items))})\n`);
     return 0;
   }
   const human = humanIO(io);
