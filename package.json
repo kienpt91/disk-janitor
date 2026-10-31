@@ -1,0 +1,53 @@
+{
+  "name": "disk-janitor",
+  "version": "0.1.0",
+  "description": "Disk cleanup that coding agents can use safely: read-only scan, reviewable plan, human-only approval, quarantine with undo.",
+  "keywords": [
+    "disk-cleanup",
+    "coding-agents",
+    "mcp",
+    "node_modules",
+    "cache",
+    "quarantine",
+    "safety"
+  ],
+  "license": "MIT",
+  "author": "Kien Phan",
+  "type": "module",
+  "bin": {
+    "disk-janitor": "dist/cli.js",
+    "disk-janitor-mcp": "dist/mcp-bin.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && npm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}
