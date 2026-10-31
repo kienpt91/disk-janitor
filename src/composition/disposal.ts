@@ -116,7 +116,7 @@ export function previewRestore(state: State, deps: Deps, selector: string): Prom
 
 /** Faithful undo: rename each quarantined item back to its original path; never overwrite. */
 export function restore(state: State, deps: Deps, events: EventPublisher, selector: string): Promise<RestoreCheck[]> {
-  return restoreUseCase({ ...listPorts(state, deps.fs), clock: { now: deps.now }, events }, selector);
+  return restoreUseCase({ ...listPorts(state, deps.fs), clock: { now: deps.now }, events, lock: new FileApplyLock(state.lockPath) }, selector);
 }
 
 /** Items eligible for permanent deletion: listed in an authenticated manifest, quarantined at least `ttlMs` ago. */
@@ -126,5 +126,5 @@ export async function purgeCandidates(state: State, ttlMs: number, nowMs: number
 
 /** Permanently delete the given items. Only paths derived from manifest entries inside the quarantine are touched. */
 export function purgeItems(state: State, deps: Deps, events: EventPublisher, items: PurgeItem[]): Promise<PurgeResult> {
-  return purgeItemsUseCase({ ...listPorts(state, deps.fs), clock: { now: deps.now }, events }, items);
+  return purgeItemsUseCase({ ...listPorts(state, deps.fs), clock: { now: deps.now }, events, lock: new FileApplyLock(state.lockPath) }, items);
 }

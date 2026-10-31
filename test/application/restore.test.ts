@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { LockHeldError } from "../../src/domain/errors.js";
+import { purgeCandidates, purgeItems } from "../../src/application/purge.js";
 import { findRestoreTargets, previewRestore, restore } from "../../src/application/restore.js";
 import { listQuarantine, readManifest } from "../../src/application/quarantine-listing.js";
 import type { Plan } from "../../src/domain/model/types.js";
@@ -262,5 +264,104 @@ describe("listQuarantine and readManifest", () => {
 
   it("rejects an id that is not a plan id", async () => {
     await expect(readManifest({ quarantine: w.quarantine }, "../etc")).rejects.toThrow("invalid plan id");
+  });
+});
+
+describe("restore holds the exclusive state lock", () => {
+  it("fails with LockHeldError while the lock is held: nothing changes, no event is published", async () => {
+    const holder = Symbol("apply");
+    w.lockState.holder = holder;
+    const events = (await w.events()).length;
+    const text = w.quarantine.texts.get(plan.id);
+    await expect(restore(w.disposalPorts(), plan.id)).rejects.toBeInstanceOf(LockHeldError);
+    expect(w.lockState.holder).toBe(holder);
+    expect(await w.events()).toHaveLength(events);
+    expect(w.quarantine.texts.get(plan.id)).toBe(text);
+    for (const i of [1, 2, 3]) expect(present(w.itemPath(plan, i))).toBe(true);
+  });
+
+  it("releases the lock after a successful restore, after refusals and after a thrown error", async () => {
+    await restore(w.disposalPorts(), nms[0] as string);
+    expect(w.lockState.holder).toBeNull();
+    w.fs.writeFile(nms[1] as string);
+    await restore(w.disposalPorts(), nms[1] as string);
+    expect(w.lockState.holder).toBeNull();
+    w.vault.key = "another-key";
+    await restore(w.disposalPorts(), plan.id);
+    expect(w.lockState.holder).toBeNull();
+    const failing = { ...w.disposalPorts(), events: { publish: () => Promise.reject(new Error("audit down")) } };
+    w.vault.key = "generated-test-key";
+    await expect(restore(failing, nms[2] as string)).rejects.toThrow("audit down");
+    expect(w.lockState.holder).toBeNull();
+  });
+
+  it("acquires the lock before it reads any manifest", async () => {
+    const order: string[] = [];
+    const lock = { acquire: async () => (order.push("lock"), { release: async () => void order.push("release") }) };
+    w.quarantine.afterLoad = () => void order.push("load");
+    await restore({ ...w.disposalPorts(), lock }, nms[0] as string);
+    expect(order[0]).toBe("lock");
+    expect(order.at(-1)).toBe("release");
+  });
+
+  it("previewRestore stays lock-free", async () => {
+    w.lockState.holder = Symbol("other");
+    const checks = await previewRestore(w.disposalPorts(), plan.id);
+    expect(checks.every((c) => c.ok)).toBe(true);
+  });
+
+  it("saves on top of the latest stored manifest, not a stale snapshot", async () => {
+    // another writer purges entry 3 while entry 1 is being restored
+    w.fs.writeFile(`${QUARANTINE_ROOT}/unused`);
+    const base = w.fs;
+    const fs = wrapFs(base, {
+      rename: async (a, b) => {
+        await base.rename(a, b);
+        if (b === nms[0]) {
+          const m = (await w.quarantine.load(plan.id)) as Manifest;
+          await w.quarantine.save(m.markPurged(3, 42));
+        }
+      },
+    });
+    await restore(w.disposalPorts(fs), nms[0] as string);
+    expect(w.quarantine.lostUpdates).toEqual([]);
+    const m = await readManifest({ quarantine: w.quarantine }, plan.id);
+    expect(m?.entries.map((e) => e.status)).toEqual(["restored", "quarantined", "purged"]);
+  });
+
+  it("a restore and a purge started together never lose an update: the second fails with LockHeldError", async () => {
+    const { items } = await purgeCandidates({ quarantine: w.quarantine, fs: w.fs }, 0, w.clock.now());
+    const results = await Promise.allSettled([restore(w.disposalPorts(), nms[0] as string), purgeItems(w.disposalPorts(), items)]);
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(LockHeldError);
+    expect(w.quarantine.lostUpdates).toEqual([]);
+    expect(w.lockState.holder).toBeNull();
+    const statuses = (await readManifest({ quarantine: w.quarantine }, plan.id))?.entries.map((e) => e.status);
+    expect(statuses?.filter((s) => s === "restored" || s === "purged").length).toBeGreaterThan(0);
+  });
+
+  it("without the lock the same interleaving is detected as lost updates (the fake can see them)", async () => {
+    const { items } = await purgeCandidates({ quarantine: w.quarantine, fs: w.fs }, 0, w.clock.now());
+    const noLock = { acquire: async () => ({ release: async () => undefined }) };
+    // restore of entry 1 is paused after its rename; a purge of everything runs and finishes; the restore then saves
+    let gate!: () => void;
+    const paused = new Promise<void>((r) => (gate = r));
+    let restoreRenamed!: () => void;
+    const renamed = new Promise<void>((r) => (restoreRenamed = r));
+    const stale = wrapFs(w.fs, {
+      rename: async (a, b) => {
+        await w.fs.rename(a, b);
+        restoreRenamed();
+        await paused;
+      },
+    });
+    const restoring = restore({ ...w.disposalPorts(stale), lock: noLock }, nms[0] as string);
+    await renamed;
+    await purgeItems({ ...w.disposalPorts(), lock: noLock }, items.slice(1));
+    gate();
+    await restoring;
+    expect(w.quarantine.lostUpdates).toEqual([]);
+    expect((await readManifest({ quarantine: w.quarantine }, plan.id))?.entries.map((e) => e.status)).toEqual(["restored", "purged", "purged"]);
   });
 });

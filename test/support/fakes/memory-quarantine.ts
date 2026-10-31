@@ -24,6 +24,10 @@ export class MemoryQuarantineStore implements QuarantineStore {
   /** Fail `save` once with this error code (test seam). */
   failSave: string | null = null;
   readonly removed: string[] = [];
+  /** Saves that would have undone a status change already stored (a stale snapshot overwrote newer state). */
+  readonly lostUpdates: string[] = [];
+  /** Runs after every successful `load` (test seam for interleaving another writer). */
+  afterLoad: ((planId: string) => Promise<void> | void) | null = null;
 
   constructor(
     private readonly fs: MemoryFileSystem,
@@ -66,7 +70,9 @@ export class MemoryQuarantineStore implements QuarantineStore {
     assertPlanId(planId);
     const text = this.texts.get(planId);
     if (text === undefined || !this.fs.exists(this.planDir(planId))) return null;
-    return Manifest.open(text, planId, await this.keys.signer(false));
+    const loaded = Manifest.open(text, planId, await this.keys.signer(false));
+    await this.afterLoad?.(planId);
+    return loaded;
   }
 
   async save(manifest: Manifest): Promise<void> {
@@ -78,6 +84,14 @@ export class MemoryQuarantineStore implements QuarantineStore {
     const signer = await this.keys.signer(true);
     if (!signer) throw new QuarantineError("approval key unavailable");
     if (!this.fs.exists(this.planDir(manifest.planId))) throw errno("ENOENT", `no such file or directory, open '${this.planDir(manifest.planId)}'`);
+    const stored = this.texts.get(manifest.planId);
+    if (stored !== undefined) {
+      const before = (JSON.parse(stored) as { entries: Array<{ index: number; status: string }> }).entries;
+      for (const e of before) {
+        const now = manifest.entry(e.index)?.status;
+        if ((e.status === "restored" || e.status === "purged") && now !== e.status) this.lostUpdates.push(`${manifest.planId}#${e.index}: ${e.status} -> ${now}`);
+      }
+    }
     this.texts.set(manifest.planId, safeJson(manifest.seal(signer), 2) + "\n");
   }
 

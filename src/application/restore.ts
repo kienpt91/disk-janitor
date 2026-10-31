@@ -8,7 +8,7 @@ import { isRestorableEntry, type Manifest, type ManifestEntry } from "../domain/
 import { restoreParent, restoreRefusal, type OriginalFact, type ParentFact, type StoredItemFact } from "../domain/quarantine/restore-rules.js";
 import { findSymlinkInChain } from "./inspection.js";
 import { listQuarantine } from "./quarantine-listing.js";
-import type { Clock, EventPublisher, FileSystem } from "./ports/common.js";
+import type { ApplyLock, Clock, EventPublisher, FileSystem } from "./ports/common.js";
 import type { QuarantineStore } from "./ports/quarantine.js";
 
 export interface RestoreCheck {
@@ -24,7 +24,8 @@ export interface RestoreTarget {
 }
 
 type LookupPorts = { quarantine: QuarantineStore; fs: FileSystem };
-export type RestorePorts = LookupPorts & { clock: Clock; events: EventPublisher };
+/** `lock` is the same exclusive lock Apply and Purge hold, so only one of them changes the Quarantine at a time. */
+export type RestorePorts = LookupPorts & { clock: Clock; events: EventPublisher; lock: ApplyLock };
 
 /** Restorable entries of the Plan named by `selector`, or of every Plan holding an item whose original path is `selector`. */
 export async function findRestoreTargets(ports: LookupPorts, selector: string): Promise<RestoreTarget[]> {
@@ -82,8 +83,20 @@ export async function previewRestore(ports: LookupPorts, selector: string): Prom
   return out;
 }
 
-/** Rename each quarantined item back to its original path; never overwrite. Publishes restore-* events. */
+/**
+ * Rename each quarantined item back to its original path; never overwrite. Publishes restore-*
+ * events. Holds the exclusive state lock throughout (LockHeldError when another operation has it).
+ */
 export async function restore(ports: RestorePorts, selector: string): Promise<RestoreCheck[]> {
+  const lease = await ports.lock.acquire();
+  try {
+    return await restoreLocked(ports, selector);
+  } finally {
+    await lease.release();
+  }
+}
+
+async function restoreLocked(ports: RestorePorts, selector: string): Promise<RestoreCheck[]> {
   const results: RestoreCheck[] = [];
   for (const { manifest, entries } of await findRestoreTargets(ports, selector)) {
     let current = manifest;
@@ -104,7 +117,8 @@ export async function restore(ports: RestorePorts, selector: string): Promise<Re
         results.push({ planId, entry, ok: false, reason: `rename failed (${code})` });
         continue;
       }
-      current = current.markRestored(entry.index, ports.clock.now());
+      // build on what is stored now, never on the snapshot read before the rename
+      current = ((await ports.quarantine.load(planId)) ?? current).markRestored(entry.index, ports.clock.now());
       await ports.quarantine.save(current);
       await ports.events.publish(events.restoreDone({ planId, path: entry.originalPath }));
       results.push({ planId, entry: current.entry(entry.index) as ManifestEntry, ok: true });

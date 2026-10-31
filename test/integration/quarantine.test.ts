@@ -1,6 +1,8 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { acquireLock } from "../../src/infrastructure/fs/file-lock.js";
+import { LockHeldError } from "../../src/domain/errors.js";
 import { AuditLog } from "../../src/infrastructure/state/audit-log.js";
 import { nodeFs } from "../../src/infrastructure/fs/node-fs.js";
 import { itemsDir, listQuarantine, manifestPath, planQuarantineDir, previewRestore, purgeCandidates, purgeItems, purgeSetDigest, QuarantineError, readManifest, restore, writeManifest, type ManifestEntry, type PurgeItem } from "../../src/composition/disposal.js";
@@ -533,5 +535,33 @@ describe("quarantine: purge", () => {
     const res = await purgeItems(w.state, w.deps, w.audit, items);
     expect(res.purged).toHaveLength(3);
     expect(readFileSync(join(w.state.quarantineDir, other, "items", "0001", "x.txt"), "utf8")).toBe("other plan\n");
+  });
+});
+
+describe("quarantine: restore and purge share the exclusive state lock", () => {
+  it("restore and purge refuse with LockHeldError while the real lock file is held, and work again once it is released", async () => {
+    const sb = makeSandbox();
+    const w = await world(sb);
+    const { items } = await purgeCandidates(w.state, 0, w.T);
+    const held = await acquireLock(w.state.lockPath);
+    await expect(restore(w.state, w.deps, w.audit, w.planId)).rejects.toBeInstanceOf(LockHeldError);
+    await expect(purgeItems(w.state, w.deps, w.audit, items)).rejects.toBeInstanceOf(LockHeldError);
+    for (let i = 0; i < 3; i++) expect(treeHash(storedItem(w.state, w.p.plan, i))).toBe(w.hashes[i]);
+    expect(eventNames(await readEvents(w.state))).not.toContain("restore-begin");
+    expect(eventNames(await readEvents(w.state))).not.toContain("purge-begin");
+    await held.release();
+    const out = await restore(w.state, w.deps, w.audit, w.planId);
+    expect(out.every((r) => r.ok)).toBe(true);
+    expect(existsSync(w.state.lockPath)).toBe(false);
+  });
+
+  it("the lock is released when restore or purge fail", async () => {
+    const sb = makeSandbox();
+    const w = await world(sb);
+    writeFileSync(manifestPath(w.state, w.planId), readFileSync(manifestPath(w.state, w.planId), "utf8").replace('"size"', '"size": 1, "x"'));
+    const { items } = await purgeCandidates(w.state, 0, w.T);
+    expect(items).toEqual([]);
+    await expect(purgeItems(w.state, w.deps, w.audit, [purgeItemFor(w.planId, { index: 1, stored: "0001", originalPath: w.nms[0] as string, detector: "node-modules", dev: "1", ino: "1", size: 1, mtimeMs: 1, status: "quarantined", quarantinedAt: 1 })])).rejects.toThrow(QuarantineError);
+    expect(existsSync(w.state.lockPath)).toBe(false);
   });
 });

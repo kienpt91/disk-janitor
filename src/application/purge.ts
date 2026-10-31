@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { events } from "../domain/events.js";
 import type { PurgeItem } from "../domain/quarantine/manifest.js";
 import { listQuarantine, type QuarantineListing } from "./quarantine-listing.js";
-import type { Clock, EventPublisher, FileSystem } from "./ports/common.js";
+import type { ApplyLock, Clock, EventPublisher, FileSystem } from "./ports/common.js";
 import type { QuarantineStore } from "./ports/quarantine.js";
 
 export interface PurgeResult {
@@ -15,7 +15,8 @@ export interface PurgeResult {
 }
 
 type ListPorts = { quarantine: QuarantineStore; fs: FileSystem };
-export type PurgePorts = ListPorts & { clock: Clock; events: EventPublisher };
+/** `lock` is the same exclusive lock Apply and Restore hold, so only one of them changes the Quarantine at a time. */
+export type PurgePorts = ListPorts & { clock: Clock; events: EventPublisher; lock: ApplyLock };
 
 /** Items eligible for permanent deletion: listed in an authenticated Manifest, quarantined at least `ttlMs` ago. */
 export async function purgeCandidates(
@@ -27,8 +28,17 @@ export async function purgeCandidates(
   return { items: manifests.flatMap((m) => m.purgeEligible(nowMs, ttlMs)), problems };
 }
 
-/** Permanently delete the given items. Publishes purge-* events. */
+/** Permanently delete the given items. Publishes purge-* events. Holds the exclusive state lock throughout. */
 export async function purgeItems(ports: PurgePorts, items: PurgeItem[]): Promise<PurgeResult> {
+  const lease = await ports.lock.acquire();
+  try {
+    return await purgeLocked(ports, items);
+  } finally {
+    await lease.release();
+  }
+}
+
+async function purgeLocked(ports: PurgePorts, items: PurgeItem[]): Promise<PurgeResult> {
   const result: PurgeResult = { purged: [], failed: [] };
   const qReal = await ports.fs.realpath(ports.quarantine.rootDir);
   for (const item of items) {
@@ -53,7 +63,8 @@ export async function purgeItems(ports: PurgePorts, items: PurgeItem[]): Promise
       result.failed.push({ item, reason: `delete failed (${code})` });
       continue;
     }
-    const updated = manifest.markPurged(entry.index, ports.clock.now());
+    // build on what is stored now, never on the snapshot read before the deletion
+    const updated = ((await ports.quarantine.load(planId)) ?? manifest).markPurged(entry.index, ports.clock.now());
     await ports.quarantine.save(updated);
     await ports.events.publish(events.purgeDone({ planId, stored: entry.stored, path: entry.originalPath }));
     result.purged.push({ ...item, entry: updated.entry(entry.index) as PurgeItem["entry"] });

@@ -3,6 +3,8 @@ import { purgeCandidates, purgeItems } from "../../src/application/purge.js";
 import { readManifest } from "../../src/application/quarantine-listing.js";
 import { restore } from "../../src/application/restore.js";
 import type { Plan } from "../../src/domain/model/types.js";
+import { LockHeldError } from "../../src/domain/errors.js";
+import type { Manifest } from "../../src/domain/quarantine/manifest.js";
 import { DAY_MS } from "../../src/domain/model/types.js";
 import { QuarantineError } from "../../src/domain/quarantine/errors.js";
 import { purgeSetDigest } from "../../src/domain/quarantine/manifest.js";
@@ -179,5 +181,52 @@ describe("purge set digest (what the human confirms)", () => {
     const late = await purgeCandidates(listPorts(), 0, appliedAt + 30 * DAY_MS);
     expect(purgeSetDigest(early.items)).toBe(purgeSetDigest(late.items));
     expect(purgeSetDigest(early.items.slice(1))).not.toBe(purgeSetDigest(early.items));
+  });
+});
+
+describe("purge holds the exclusive state lock", () => {
+  it("fails with LockHeldError while the lock is held: nothing is deleted, no event is published, the manifest is untouched", async () => {
+    const { items } = await purgeCandidates(listPorts(), 0, appliedAt);
+    const holder = Symbol("apply");
+    w.lockState.holder = holder;
+    const text = w.quarantine.texts.get(plan.id);
+    const events = (await w.events()).length;
+    await expect(purgeItems(w.disposalPorts(), items)).rejects.toBeInstanceOf(LockHeldError);
+    expect(w.lockState.holder).toBe(holder);
+    expect(w.quarantine.removed).toEqual([]);
+    expect(w.quarantine.texts.get(plan.id)).toBe(text);
+    expect(await w.events()).toHaveLength(events);
+  });
+
+  it("releases the lock after success, after refusals and after a thrown error", async () => {
+    const { items } = await purgeCandidates(listPorts(), 0, appliedAt);
+    await purgeItems(w.disposalPorts(), [items[0] as (typeof items)[number]]);
+    expect(w.lockState.holder).toBeNull();
+    await purgeItems(w.disposalPorts(), [items[0] as (typeof items)[number]]);
+    expect(w.lockState.holder).toBeNull();
+    const failing = { ...w.disposalPorts(), events: { publish: () => Promise.reject(new Error("audit down")) } };
+    await expect(purgeItems(failing, [items[1] as (typeof items)[number]])).rejects.toThrow("audit down");
+    expect(w.lockState.holder).toBeNull();
+  });
+
+  it("purgeCandidates (read-only) does not need the lock", async () => {
+    w.lockState.holder = Symbol("other");
+    expect((await purgeCandidates(listPorts(), 0, appliedAt)).items).toHaveLength(3);
+  });
+
+  it("saves on top of the latest stored manifest, not a stale snapshot", async () => {
+    const { items } = await purgeCandidates(listPorts(), 0, appliedAt);
+    let first = true;
+    w.quarantine.afterLoad = async () => {
+      if (!first) return;
+      first = false;
+      // another writer restores entry 3 after this purge read the manifest
+      const m = (await w.quarantine.load(plan.id)) as Manifest;
+      await w.quarantine.save(m.markRestored(3, 99));
+    };
+    await purgeItems(w.disposalPorts(), [items[0] as (typeof items)[number]]);
+    w.quarantine.afterLoad = null;
+    expect(w.quarantine.lostUpdates).toEqual([]);
+    expect((await readManifest({ quarantine: w.quarantine }, plan.id))?.entries.map((e) => e.status)).toEqual(["purged", "quarantined", "restored"]);
   });
 });

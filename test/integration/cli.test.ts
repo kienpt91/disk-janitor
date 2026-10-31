@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, 
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AGENT_ENV_MARKERS } from "../../src/domain/policy/human.js";
+import { acquireLock } from "../../src/infrastructure/fs/file-lock.js";
 import { purgeCandidates, purgeSetDigest } from "../../src/composition/disposal.js";
 import { DAY, makeProject, makeSandbox, testDeps, treeHash, writeText, type Sandbox } from "../support/helpers.js";
 import { approvalFiles, auditEvents, baseArgs, cli, cliApprove, cliPlan, stateOf, tamperFile } from "../support/helpers-cli.js";
@@ -229,7 +230,7 @@ describe("cli: approve (human only)", () => {
 
   it("refuses when stdin is not a TTY", async () => {
     const { sb, deps, p } = await planned();
-    const r = await cli(sb, ["approve", p.id, "--state-dir", sb.state], deps, { stdinIsTTY: false, stdoutIsTTY: true, answers: [p.digest.slice(0, 8)] });
+    const r = await cli(sb, ["approve", p.id, "--state-dir", sb.state], deps, { stdinIsTTY: false, stdoutIsTTY: true, answers: [p.digest] });
     expect(r.code).toBe(1);
     expect(r.err).toContain("non-interactive");
     expect(r.io.asked).toEqual([]);
@@ -238,7 +239,7 @@ describe("cli: approve (human only)", () => {
 
   it("refuses when stdout is not a TTY", async () => {
     const { sb, deps, p } = await planned();
-    const r = await cli(sb, ["approve", p.id, "--state-dir", sb.state], deps, { stdinIsTTY: true, stdoutIsTTY: false, answers: [p.digest.slice(0, 8)] });
+    const r = await cli(sb, ["approve", p.id, "--state-dir", sb.state], deps, { stdinIsTTY: true, stdoutIsTTY: false, answers: [p.digest] });
     expect(r.code).toBe(1);
     expect(r.err).toContain("non-interactive");
     expect(approvalFiles(sb)).toEqual([]);
@@ -255,7 +256,7 @@ describe("cli: approve (human only)", () => {
 
   it("a falsy marker value (CI=0) does not block a human", async () => {
     const { sb, deps, p } = await planned();
-    const r = await cli(sb, ["approve", p.id, "--state-dir", sb.state], deps, { tty: true, env: { CI: "0" }, answers: [p.digest.slice(0, 8)] });
+    const r = await cli(sb, ["approve", p.id, "--state-dir", sb.state], deps, { tty: true, env: { CI: "0" }, answers: [p.digest] });
     expect(r.code).toBe(0);
     expect(approvalFiles(sb)).toEqual([`${p.digest}.json`]);
   });
@@ -269,16 +270,32 @@ describe("cli: approve (human only)", () => {
     expect(auditEvents(sb)).toEqual(["plan-created", "approval-declined"]);
   });
 
-  it("asks for exactly the first 8 characters of the digest", async () => {
+  it("asks for the full digest without printing it, and the approve screen never shows it", async () => {
     const { sb, deps, p } = await planned();
     const r = await cliApprove(sb, p, deps);
     expect(r.code).toBe(0);
     expect(r.io.asked).toHaveLength(1);
-    expect(r.io.asked[0]).toContain(`Type ${p.digest.slice(0, 8)} to`);
-    expect(r.io.asked[0]).not.toContain(p.digest.slice(0, 9));
+    expect(r.io.asked[0]).toContain("full plan digest");
+    expect(r.io.asked[0]).toContain("disk-janitor explain");
+    expect(r.io.asked[0]).not.toContain(p.digest.slice(0, 8));
+    expect(r.out).not.toContain(p.digest.slice(0, 8));
+    expect(r.out).toContain(p.id);
   });
 
-  it("typing the digest prefix writes the approval file and apply then succeeds", async () => {
+  it("the old 8-character prefix is not accepted", async () => {
+    const { sb, deps, p } = await planned();
+    const r = await cli(sb, ["approve", p.id, "--state-dir", sb.state], deps, { tty: true, answers: [p.digest.slice(0, 8)] });
+    expect(r.code).toBe(1);
+    expect(approvalFiles(sb)).toEqual([]);
+  });
+
+  it("explain shows the full digest the human has to type", async () => {
+    const { sb, deps, p } = await planned();
+    const r = await cli(sb, ["explain", p.id, "--state-dir", sb.state], deps);
+    expect(r.out).toContain(p.digest);
+  });
+
+  it("typing the full digest writes the approval file and apply then succeeds", async () => {
     const { sb, app, deps, p } = await planned();
     const r = await cliApprove(sb, p, deps);
     expect(r.code).toBe(0);
@@ -560,6 +577,39 @@ describe("cli: purge", () => {
     expect(existsSync(join(sb.state, "quarantine", p1.id, "items", "0001"))).toBe(true);
   });
 
+  it("a real purge while another operation holds the state lock exits 1 and deletes nothing", async () => {
+    const { sb, deps, clock, p1 } = await twoGenerations();
+    const state = await stateOf(sb);
+    const { items } = await purgeCandidates(state, 7 * DAY, clock.t);
+    const held = await acquireLock(state.lockPath);
+    try {
+      const r = await cli(sb, ["purge", "--state-dir", sb.state], deps, { tty: true, answers: [purgeSetDigest(items).slice(0, 8)] });
+      expect(r.code).toBe(1);
+      expect(r.err).toContain("another disk-janitor operation holds the lock");
+    } finally {
+      await held.release();
+    }
+    expect(existsSync(join(sb.state, "quarantine", p1.id, "items", "0001"))).toBe(true);
+    expect(auditEvents(sb)).not.toContain("purge-begin");
+  });
+
+  it("restore while another operation holds the state lock exits 1 and restores nothing; a dry run still works", async () => {
+    const { sb, deps, p1 } = await twoGenerations();
+    const state = await stateOf(sb);
+    const held = await acquireLock(state.lockPath);
+    try {
+      const r = await cli(sb, ["restore", p1.id, "--state-dir", sb.state], deps, {});
+      expect(r.code).toBe(1);
+      expect(r.err).toContain("another disk-janitor operation holds the lock");
+      const dry = await cli(sb, ["restore", p1.id, "--dry-run", "--state-dir", sb.state], deps, {});
+      expect(dry.code).toBe(0);
+    } finally {
+      await held.release();
+    }
+    expect(existsSync(join(sb.state, "quarantine", p1.id, "items", "0001"))).toBe(true);
+    expect(auditEvents(sb)).not.toContain("restore-begin");
+  });
+
   it("a wrong confirmation cancels and every item is still there", async () => {
     const { sb, deps, p1, p2 } = await twoGenerations();
     const r = await cli(sb, ["purge", "--state-dir", sb.state], deps, { tty: true, answers: ["12345678"] });
@@ -578,7 +628,8 @@ describe("cli: purge", () => {
     const expected = purgeSetDigest(items).slice(0, 8);
     const r = await cli(sb, ["purge", "--state-dir", sb.state], deps, { tty: true, answers: [expected] });
     expect(r.code).toBe(0);
-    expect(r.io.asked[0]).toContain(expected);
+    expect(r.io.asked[0]).not.toContain(expected);
+    expect(r.io.asked[0]).toContain("purge --dry-run");
     expect(r.out).toContain("purged 1 item(s)");
     expect(existsSync(join(sb.state, "quarantine", p1.id, "items", "0001"))).toBe(false);
     expect(existsSync(join(sb.state, "quarantine", p2.id, "items", "0001"))).toBe(true);

@@ -104,7 +104,7 @@ export class DisposalWorld {
 
   /** Ports for restore and purge. */
   disposalPorts(fs: FileSystem = this.fs) {
-    return { fs, clock: this.clock, quarantine: this.quarantine, events: this.audit };
+    return { fs, clock: this.clock, quarantine: this.quarantine, events: this.audit, lock: this.lock };
   }
 
   apply(plan: Plan, over: Partial<ApplyPorts> = {}, config: Config = this.config): Promise<ApplyResult> {
