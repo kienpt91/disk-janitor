@@ -3,8 +3,16 @@
 
 import { isInside } from "../shared/paths.js";
 
-/** Is a directory inside a git work tree? "unavailable": git state could not be established. */
-export type RepoInfo = { state: "none" } | { state: "unavailable" } | { state: "repo"; toplevel: string };
+/**
+ * Is a directory inside a git work tree? "unavailable": git state could not be established.
+ * "untrusted": the repository's own configuration defines a command (`key`) that git could run
+ * while answering questions about it, so nothing is asked of git inside it.
+ */
+export type RepoInfo =
+  | { state: "none" }
+  | { state: "unavailable" }
+  | { state: "untrusted"; key: string }
+  | { state: "repo"; toplevel: string };
 
 export type IgnoreState = "ignored" | "not-ignored" | "error";
 

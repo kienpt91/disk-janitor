@@ -9,6 +9,7 @@ import { DAY_MS, type DetectorId, type ReportItem } from "../model/types.js";
 import { protectedReason } from "../policy/protected.js";
 import type { BuildOutputSpec, CacheLocation, Lockfile } from "./catalog.js";
 import { openPathUnder, type DockerDfRow, type IgnoreState, type OpenFileIndex, type RepoInfo, type WorktreeEntry } from "./facts.js";
+import { untrustedConfigReason } from "./repo-config.js";
 import type { TreeStats } from "./tree-analysis.js";
 
 export type Decision<T> = { ok: true; value: T } | { ok: false; reason: string };
@@ -98,6 +99,7 @@ export function assessFsCandidate(input: FsAssessmentInput): Decision<FsFinding>
 
 /** A repository that is unreadable or whose root escapes the configured Root makes its projects ineligible. */
 export function repositoryRefusal(repo: RepoInfo, root: string): string | null {
+  if (repo.state === "untrusted") return untrustedConfigReason(repo.key);
   if (repo.state === "unavailable") return "inside a git repository but git state could not be read";
   if (repo.state === "repo" && !isInside(root, repo.toplevel)) return "its git repository root is outside the configured root";
   return null;

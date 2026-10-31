@@ -9,6 +9,8 @@ export interface GitPort {
   /**
    * Is `dir` inside a git work tree? "unavailable" when git cannot be run but a .git entry exists
    * between `dir` and `ceiling`; "none" when git says no or no .git entry exists and git is missing.
+   * "untrusted" when the repository's local configuration defines a command git could run (see
+   * domain/discovery/repo-config); no other method may be called for such a repository.
    */
   repoInfo(dir: string, ceiling: string): Promise<RepoInfo>;
   /** Is `path` ignored by the repository containing `repoDir`? */
