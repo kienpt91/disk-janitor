@@ -8,7 +8,7 @@ import type { Deps } from "./deps.js";
 import { buildPlan, MAX_PLAN_BYTES, parsePlan, PLAN_ID_RE, writePlanFile } from "./plan.js";
 import { scan, type ScanResult } from "./scan.js";
 import { openState, type State } from "./state.js";
-import type { Plan } from "./types.js";
+import type { Plan } from "./domain/model/types.js";
 
 export { configCore, loadConfigFile, resolveConfig };
 export type { Config, RawConfig };

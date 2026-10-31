@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { escapeText } from "./escape.js";
+import { escapeText } from "./domain/shared/escape.js";
 import { realIO, runCli } from "./cli.js";
 
 runCli(process.argv.slice(2), realIO()).then(

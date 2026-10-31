@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 import { resolve } from "node:path";
 import { loadConfigFile, resolveConfig, type RawConfig } from "./config.js";
 import { defaultDeps } from "./deps.js";
-import { escapeText } from "./escape.js";
+import { escapeText } from "./domain/shared/escape.js";
 import { createMcpServer } from "./mcp.js";
 
 const HELP = `disk-janitor-mcp: MCP server (stdio) for disk-janitor

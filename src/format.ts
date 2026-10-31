@@ -1,6 +1,6 @@
-import { escapeText } from "./escape.js";
+import { escapeText } from "./domain/shared/escape.js";
 import type { ScanResult } from "./scan.js";
-import type { Candidate, Plan, ReportItem } from "./types.js";
+import type { Candidate, Plan, ReportItem } from "./domain/model/types.js";
 
 export function formatBytes(n: number): string {
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];

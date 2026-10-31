@@ -3,15 +3,15 @@ import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from
 import { join, sep } from "node:path";
 import type { AuditLog } from "./audit.js";
 import { baseFor } from "./bases.js";
-import { canonicalJson } from "./canon.js";
+import { canonicalJson } from "./domain/shared/canonical.js";
 import type { Deps } from "./deps.js";
-import { safeJson } from "./escape.js";
+import { safeJson } from "./domain/shared/escape.js";
 import { findSymlinkInChain, isCanonicalAbsolute } from "./paths.js";
 import { PLAN_ID_RE } from "./plan.js";
-import { protectedReason } from "./protect.js";
-import { arr, int, literal, obj, opt, parseJson, SchemaError, str, type Infer, type Parser } from "./schema.js";
+import { protectedReason } from "./domain/policy/protected.js";
+import { arr, int, literal, obj, opt, parseJson, SchemaError, str, type Infer, type Parser } from "./domain/shared/schema.js";
 import { loadKey, type State } from "./state.js";
-import { DETECTOR_IDS, DAY_MS } from "./types.js";
+import { DETECTOR_IDS, DAY_MS } from "./domain/model/types.js";
 
 export const DEFAULT_PURGE_TTL_DAYS = 7;
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;

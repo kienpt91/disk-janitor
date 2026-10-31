@@ -11,7 +11,7 @@ import { defaultDeps, runCommand, type CommandResult, type Deps } from "../src/d
 import { buildPlan } from "../src/plan.js";
 import { scan } from "../src/scan.js";
 import { openState, type State } from "../src/state.js";
-import type { Plan } from "../src/types.js";
+import type { Plan } from "../src/domain/model/types.js";
 
 export const DAY = 86_400_000;
 

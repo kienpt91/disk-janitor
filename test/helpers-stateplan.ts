@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { computePlanDigest } from "../src/plan.js";
-import type { Plan } from "../src/types.js";
+import type { Plan } from "../src/domain/model/types.js";
 import { makeMixedTree, planFor, type Planned, type Sandbox } from "./helpers.js";
 
 /** mulberry32 seeded PRNG: returns floats in [0, 1). */

@@ -4,14 +4,14 @@ import type { Deps } from "./deps.js";
 import { lstatOrNull } from "./fsapi.js";
 import { loadOpenFiles } from "./openfiles.js";
 import { isInside } from "./paths.js";
-import { protectedReason } from "./protect.js";
+import { protectedReason } from "./domain/policy/protected.js";
 import { BUILD_FIRST_SEGMENTS, evaluateBuildOutputs } from "./detectors/buildOutput.js";
 import { skip, type ScanCtx } from "./detectors/common.js";
 import { scanDocker, type DockerFinding } from "./detectors/docker.js";
 import { evaluateNodeModules } from "./detectors/nodeModules.js";
 import { scanPackageCaches } from "./detectors/packageCache.js";
 import { reportWorktrees } from "./detectors/worktrees.js";
-import type { FsCandidate, ReportItem, SkippedItem } from "./types.js";
+import type { FsCandidate, ReportItem, SkippedItem } from "./domain/model/types.js";
 
 export const MAX_DIRS_VISITED = 100_000;
 

@@ -1,7 +1,7 @@
 import { isAbsolute, resolve, sep } from "node:path";
 import type { FsApi } from "./fsapi.js";
 import { isInside } from "./paths.js";
-import { protectedReason } from "./protect.js";
+import { protectedReason } from "./domain/policy/protected.js";
 
 export class RootsError extends Error {
   constructor(message: string) {

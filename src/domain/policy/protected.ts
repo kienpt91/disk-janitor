@@ -3,7 +3,7 @@
 // are case-insensitive) and applies to every component of the absolute path.
 
 import { sep } from "node:path";
-import { isInside } from "./paths.js";
+import { isInside } from "../../paths.js";
 
 const EXACT_SEGMENTS = new Set([
   ".git",

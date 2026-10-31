@@ -8,7 +8,7 @@ import type { Deps } from "../src/deps.js";
 import { nodeFs } from "../src/fsapi.js";
 import { computePlanDigest } from "../src/plan.js";
 import { readManifest, restore } from "../src/quarantine.js";
-import type { FsCandidate } from "../src/types.js";
+import type { FsCandidate } from "../src/domain/model/types.js";
 import { ageTree, approveAsHuman, makeProject, makeSandbox, planFor, testDeps, treeHash, writeText, type Planned, type Sandbox } from "./helpers.js";
 import { catchApply, eventNames, fsCandidates, hashExcluding, makeThree, readEvents, retarget, runApply, setPath, storedItem, withDev } from "./helpers-apply.js";
 

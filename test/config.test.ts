@@ -11,7 +11,7 @@ import {
   resolveConfig,
   type RawConfig,
 } from "../src/config.js";
-import { canonicalJson, sha256Hex } from "../src/canon.js";
+import { canonicalJson, sha256Hex } from "../src/domain/shared/canonical.js";
 import { makeConfig, makeSandbox, testDeps, writeText, type Sandbox } from "./helpers.js";
 
 const deps = testDeps();

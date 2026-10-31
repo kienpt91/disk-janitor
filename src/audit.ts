@@ -1,6 +1,6 @@
 import { constants, lstat, open, readFile } from "node:fs/promises";
-import { canonicalJson, sha256Hex } from "./canon.js";
-import { safeJson } from "./escape.js";
+import { canonicalJson, sha256Hex } from "./domain/shared/canonical.js";
+import { safeJson } from "./domain/shared/escape.js";
 import { withLock } from "./lock.js";
 import type { State } from "./state.js";
 

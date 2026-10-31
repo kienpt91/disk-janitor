@@ -4,7 +4,7 @@ import { runCli, type CliIO } from "../src/cli.js";
 import type { Deps } from "../src/deps.js";
 import { parsePlan } from "../src/plan.js";
 import { openState, type State } from "../src/state.js";
-import type { Plan } from "../src/types.js";
+import type { Plan } from "../src/domain/model/types.js";
 import type { Sandbox } from "./helpers.js";
 import { testDeps } from "./helpers.js";
 

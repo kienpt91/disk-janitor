@@ -5,7 +5,7 @@ import { ApplyError, type ApplyResult } from "../src/apply.js";
 import { AuditLog } from "../src/audit.js";
 import { parsePlan, writePlanFile } from "../src/plan.js";
 import { restore } from "../src/quarantine.js";
-import type { FsCandidate } from "../src/types.js";
+import type { FsCandidate } from "../src/domain/model/types.js";
 import { ageTree, approveAsHuman, makeProject, makeSandbox, planFor, treeHash, writeText } from "./helpers.js";
 import { catchApply, fsCandidates, hashExcluding, mulberry32, runApply, storedItem } from "./helpers-apply.js";
 

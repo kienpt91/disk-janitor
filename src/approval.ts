@@ -2,10 +2,10 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuditLog } from "./audit.js";
-import { safeJson } from "./escape.js";
-import { int, literal, obj, parseJson, SchemaError, str } from "./schema.js";
+import { safeJson } from "./domain/shared/escape.js";
+import { int, literal, obj, parseJson, SchemaError, str } from "./domain/shared/schema.js";
 import { loadKey, type State } from "./state.js";
-import type { Plan } from "./types.js";
+import type { Plan } from "./domain/model/types.js";
 
 export const DEFAULT_VALIDITY_MS = 15 * 60_000;
 export const MAX_VALIDITY_MS = 60 * 60_000;

@@ -2,8 +2,8 @@ import type { Config } from "../config.js";
 import type { Deps } from "../deps.js";
 import { analyzeTree } from "../analyze.js";
 import { openPathUnder, type OpenFileIndex } from "../openfiles.js";
-import { protectedReason } from "../protect.js";
-import { DAY_MS, type DetectorId, type FsCandidate, type ReportItem, type SkippedItem } from "../types.js";
+import { protectedReason } from "../domain/policy/protected.js";
+import { DAY_MS, type DetectorId, type FsCandidate, type ReportItem, type SkippedItem } from "../domain/model/types.js";
 
 export const MAX_SKIPPED = 2000;
 

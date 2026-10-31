@@ -10,7 +10,7 @@ import { runDockerPrune } from "./detectors/docker.js";
 import { acquireLock, LockHeldError } from "./lock.js";
 import { loadOpenFiles, openPathUnder } from "./openfiles.js";
 import { findSymlinkInChain, isCanonicalAbsolute, isInside } from "./paths.js";
-import { protectedReason } from "./protect.js";
+import { protectedReason } from "./domain/policy/protected.js";
 import {
   ensureQuarantineDirs,
   itemPath,
@@ -20,7 +20,7 @@ import {
   type ManifestEntry,
 } from "./quarantine.js";
 import type { State } from "./state.js";
-import { DAY_MS, type DockerCandidate, type FsCandidate, type Plan } from "./types.js";
+import { DAY_MS, type DockerCandidate, type FsCandidate, type Plan } from "./domain/model/types.js";
 
 export const MAX_PLAN_AGE_MS = DAY_MS;
 

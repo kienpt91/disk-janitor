@@ -1,9 +1,9 @@
 import { readFileSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { canonicalJson, sha256Hex } from "../src/canon.js";
+import { canonicalJson, sha256Hex } from "../src/domain/shared/canonical.js";
 import { buildPlan, computePlanDigest, MAX_PLAN_BYTES, parsePlan, PLAN_ID_RE, PlanIntegrityError, planTotals, writePlanFile } from "../src/plan.js";
 import { scan } from "../src/scan.js";
-import type { FsCandidate, Plan } from "../src/types.js";
+import type { FsCandidate, Plan } from "../src/domain/model/types.js";
 import { makeSandbox, makeConfig, testDeps } from "./helpers.js";
 import { clone, forge, mixedPlan, mulberry32, planPath } from "./helpers-stateplan.js";
 

@@ -5,7 +5,7 @@ import { AuditLog, type AuditEntry } from "../src/audit.js";
 import { computePlanDigest } from "../src/plan.js";
 import { itemPath } from "../src/quarantine.js";
 import type { State } from "../src/state.js";
-import type { FsCandidate, Plan } from "../src/types.js";
+import type { FsCandidate, Plan } from "../src/domain/model/types.js";
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { makeProject, type Planned, type Sandbox } from "./helpers.js";

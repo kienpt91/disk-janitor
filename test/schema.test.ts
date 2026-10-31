@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { canonicalJson, canonicalSafeJson, sha256Hex } from "../src/canon.js";
-import { arr, bool, int, literal, obj, opt, parseJson, SchemaError, str, union } from "../src/schema.js";
+import { canonicalJson, canonicalSafeJson, sha256Hex } from "../src/domain/shared/canonical.js";
+import { arr, bool, int, literal, obj, opt, parseJson, SchemaError, str, union } from "../src/domain/shared/schema.js";
 
 const person = obj({ name: str({ max: 8 }), age: int({ min: 0, max: 150 }), tags: arr(str(), { max: 3 }), nick: opt(str()) });
 

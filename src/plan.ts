@@ -1,12 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { writeFile } from "node:fs/promises";
-import { canonicalJson, sha256Hex } from "./canon.js";
+import { canonicalJson, sha256Hex } from "./domain/shared/canonical.js";
 import { configCore, type Config } from "./config.js";
-import { safeJson } from "./escape.js";
+import { safeJson } from "./domain/shared/escape.js";
 import { isCanonicalAbsolute } from "./paths.js";
 import type { ScanResult } from "./scan.js";
-import { arr, bool, int, literal, obj, opt, parseJson, SchemaError, str, union, type Parser } from "./schema.js";
-import { DETECTOR_IDS, PLAN_VERSION, type Candidate, type ConfigCore, type Plan } from "./types.js";
+import { arr, bool, int, literal, obj, opt, parseJson, SchemaError, str, union, type Parser } from "./domain/shared/schema.js";
+import { DETECTOR_IDS, PLAN_VERSION, type Candidate, type ConfigCore, type Plan } from "./domain/model/types.js";
 
 export const MAX_PLAN_BYTES = 8 * 1024 * 1024;
 export const PLAN_ID_RE = /^plan-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$/;

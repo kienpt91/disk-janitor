@@ -1,4 +1,4 @@
-import type { DockerCandidate } from "../types.js";
+import type { DockerCandidate } from "../domain/model/types.js";
 import type { CommandRunner } from "../deps.js";
 import type { ScanCtx } from "./common.js";
 

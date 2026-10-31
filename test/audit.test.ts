@@ -1,6 +1,6 @@
 import { readFileSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { canonicalJson, sha256Hex } from "../src/canon.js";
+import { canonicalJson, sha256Hex } from "../src/domain/shared/canonical.js";
 import { AuditLog, GENESIS, verifyAuditText } from "../src/audit.js";
 import { openState } from "../src/state.js";
 import { makeSandbox } from "./helpers.js";

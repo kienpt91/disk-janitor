@@ -1,7 +1,7 @@
 import type { BigIntStats } from "node:fs";
 import { join } from "node:path";
 import type { FsApi } from "./fsapi.js";
-import { contentNameReason } from "./protect.js";
+import { contentNameReason } from "./domain/policy/protected.js";
 
 export interface TreeStats {
   /** Disk usage in bytes: allocated blocks, hard-linked files counted once. */

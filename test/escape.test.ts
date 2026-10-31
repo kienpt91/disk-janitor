@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { escapeText, frameUntrusted, safeJson } from "../src/escape.js";
+import { escapeText, frameUntrusted, safeJson } from "../src/domain/shared/escape.js";
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;

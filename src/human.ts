@@ -1,4 +1,4 @@
-import { escapeText } from "./escape.js";
+import { escapeText } from "./domain/shared/escape.js";
 
 export class HumanRequiredError extends Error {
   constructor(message: string) {

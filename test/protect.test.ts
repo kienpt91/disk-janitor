@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contentNameReason, protectedReason } from "../src/protect.js";
+import { contentNameReason, protectedReason } from "../src/domain/policy/protected.js";
 
 const HOME = "/Users/alice";
 const HOMES = [HOME];
