@@ -51,7 +51,8 @@ describe("spawned bin.js", () => {
     const r = await run(BIN, ["--help"], sb);
     expect(r.code).toBe(0);
     expect(r.out).toContain("usage: disk-janitor <command>");
-    expect(r.out).toContain("approve <plan>        HUMAN ONLY");
+    expect(r.out).toContain("approve <plan>        approve a plan for 15 minutes (interactive terminal, or an OS dialog with --approver dialog)");
+    expect(r.out).toContain("--approver <kind>");
   });
 
   it("no command exits 2", async () => {
@@ -192,7 +193,7 @@ describe("spawned mcp-bin.js over stdio", () => {
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual(["apply_plan", "explain_plan", "list_quarantine", "plan", "restore_preview", "scan", "status"]);
     expect(names.some((n) => /approve|purge/.test(n))).toBe(false);
-    expect(client.getInstructions()).toContain("HUMAN approves");
+    expect(client.getInstructions()).toContain("no approve tool and no purge tool");
   });
 
   it("scan works and reports the fixture; apply_plan without approval is an error", async () => {

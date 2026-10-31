@@ -86,3 +86,45 @@ export function renderPlanSummary(plan: Plan, listLimit = 25): string[] {
   if (dockerC.length > 0) lines.push("WARNING: docker prunes are irreversible and are not quarantined.");
   return lines;
 }
+
+export interface ApprovalEnv {
+  DOCKER_HOST?: string | undefined;
+  DOCKER_CONTEXT?: string | undefined;
+  DOCKER_CONFIG?: string | undefined;
+}
+
+/**
+ * The approval screen header. It never contains the plan digest: the human has to read the digest
+ * from `explain` and type it back. Docker candidates name the daemon the prune will really hit.
+ */
+export function renderApprovalHeader(plan: Plan, validityMs: number, env: ApprovalEnv = {}): string[] {
+  const fsC = plan.candidates.filter((c) => c.kind === "fs");
+  const dockerC = plan.candidates.filter((c) => c.kind === "docker");
+  const total = plan.candidates.reduce((s, c) => s + c.size, 0);
+  const lines = [
+    `plan:       ${plan.id}`,
+    `created:    ${formatTime(plan.createdAt)}`,
+    `roots:      ${plan.config.roots.map((r) => e(r)).join(", ")}`,
+    `candidates: ${plan.candidates.length} (${fsC.length} directories to quarantine, ${dockerC.length} docker prune), ${formatBytes(total)}`,
+    "",
+    `Approving lets 'apply' move the directories listed below into quarantine for ${Math.round(validityMs / 60_000)} minutes.`,
+    "Nothing is deleted by apply; directories stay restorable until a separate 'purge'.",
+  ];
+  if (dockerC.length > 0) {
+    lines.push(
+      "WARNING: docker prunes are IRREVERSIBLE, are not quarantined, and run against the docker daemon selected by:",
+      `  DOCKER_HOST=${env.DOCKER_HOST !== undefined ? e(env.DOCKER_HOST, 200) : "(unset: the default local daemon)"}`,
+      `  DOCKER_CONTEXT=${env.DOCKER_CONTEXT !== undefined ? e(env.DOCKER_CONTEXT, 200) : "(unset: the current docker context)"}`,
+      `  DOCKER_CONFIG=${env.DOCKER_CONFIG !== undefined ? e(env.DOCKER_CONFIG, 200) : "(unset)"}`,
+    );
+  }
+  lines.push("", "Every candidate follows:");
+  return lines;
+}
+
+/** One line per candidate, all of them. */
+export function renderApprovalCandidates(plan: Plan): string[] {
+  return plan.candidates.map((c) =>
+    c.kind === "fs" ? `  ${formatBytes(c.size).padStart(10)}  ${e(c.path, 600)}` : `  ${formatBytes(c.size).padStart(10)}  docker ${c.resource} (irreversible)`,
+  );
+}

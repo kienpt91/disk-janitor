@@ -23,6 +23,7 @@ export interface IOOptions {
   stdoutIsTTY?: boolean;
   env?: Record<string, string | undefined>;
   cwd?: string;
+  platform?: string;
   answers?: string[];
 }
 
@@ -38,6 +39,7 @@ export function makeIO(sb: Sandbox, opts: IOOptions = {}): FakeIO {
     stdoutIsTTY: opts.stdoutIsTTY ?? opts.tty ?? false,
     env: opts.env ?? {},
     cwd: opts.cwd ?? sb.base,
+    platform: opts.platform ?? "linux",
     ask: async (q) => {
       asked.push(q);
       const a = answers.shift();
@@ -89,7 +91,7 @@ export async function cliPlan(sb: Sandbox, deps: Deps = testDeps(), extra: strin
 
 /** Human approval through the CLI with a TTY and the correct digest prefix typed. */
 export async function cliApprove(sb: Sandbox, p: CliPlan, deps: Deps = testDeps(), extra: string[] = []): Promise<Ran> {
-  return cli(sb, ["approve", p.id, "--state-dir", sb.state, ...extra], deps, { tty: true, answers: [p.digest.slice(0, 8)] });
+  return cli(sb, ["approve", p.id, "--state-dir", sb.state, ...extra], deps, { tty: true, answers: [p.digest] });
 }
 
 export async function stateOf(sb: Sandbox): Promise<State> {

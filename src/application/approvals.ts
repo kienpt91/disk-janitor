@@ -2,8 +2,7 @@ import { Approval, DEFAULT_VALIDITY_MS, type ApprovalCheck, type ApprovalRecord 
 import { isApprovalConsumed } from "../domain/audit/chain.js";
 import { events } from "../domain/events.js";
 import type { Plan } from "../domain/model/types.js";
-import { assertHumanSession, digestPrefix } from "../domain/policy/human.js";
-import { confirmByTyping, type HumanIO } from "./human-confirmation.js";
+import type { Approver } from "./approvers.js";
 import type { Clock, EventPublisher, IdSource } from "./ports/common.js";
 import type { ApprovalStore, AuditTrail, KeyStore } from "./ports/planning.js";
 import { isPlanTooOld, PlanTooOldError } from "../domain/plan/plan.js";
@@ -56,29 +55,24 @@ export interface ApprovePlanPorts extends IssueApprovalPorts {
   events: EventPublisher;
 }
 
-export interface ApprovePlanOptions {
-  validityMs: number;
-  /** Renders the plan summary shown to the human before the prompt (presentation lives outside). */
-  describe: (plan: Plan, validityMs: number) => string[];
-}
-
 export type ApprovePlanResult = { approved: true; record: ApprovalRecord } | { approved: false };
 
 /**
- * ApprovePlan use case: the human-only step. Requires an interactive human session, shows the plan,
- * and requires the first 8 characters of the plan digest to be typed back. Publishes
- * `approval-issued` or `approval-declined`.
+ * ApprovePlan use case: the human step. The approver (terminal prompt or OS dialog) decides after
+ * showing the plan; an approved decision issues the single-use record. Publishes `approval-issued`
+ * or `approval-declined`, each with the approver kind.
  */
-export async function approvePlan(ports: ApprovePlanPorts, io: HumanIO, plan: Plan, options: ApprovePlanOptions): Promise<ApprovePlanResult> {
-  assertHumanSession(io, "approve");
+export async function approvePlan(ports: ApprovePlanPorts, approver: Approver, plan: Plan, validityMs: number): Promise<ApprovePlanResult> {
+  approver.preflight?.();
   if (isPlanTooOld(plan, ports.clock.now())) throw new PlanTooOldError();
-  for (const line of options.describe(plan, options.validityMs)) io.write(line);
-  const ok = await confirmByTyping(io, digestPrefix(plan.digest), "approve this plan (first 8 characters of its digest)");
-  if (!ok) {
-    await ports.events.publish(events.approvalDeclined({ planId: plan.id, planDigest: plan.digest }));
+  const decision = await approver.decide(plan, validityMs);
+  if (decision !== "approved") {
+    await ports.events.publish(events.approvalDeclined({ planId: plan.id, planDigest: plan.digest, approver: approver.kind }));
     return { approved: false };
   }
-  const record = await issueApproval(ports, plan, options.validityMs);
-  await ports.events.publish(events.approvalIssued({ planId: plan.id, planDigest: plan.digest, expiresAt: record.expiresAt, nonce: record.nonce }));
+  const record = await issueApproval(ports, plan, validityMs);
+  await ports.events.publish(
+    events.approvalIssued({ planId: plan.id, planDigest: plan.digest, expiresAt: record.expiresAt, nonce: record.nonce, approver: approver.kind }),
+  );
   return { approved: true, record };
 }

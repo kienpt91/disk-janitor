@@ -816,3 +816,81 @@ describe("cli: status, audit, doctor", () => {
     expect(r.out).toContain("audit chain broken at line 1");
   });
 });
+
+describe("cli: approve --approver dialog", () => {
+  async function plannedForDialog() {
+    const sb = makeSandbox();
+    makeProject(join(sb.projects, "a"), { nodeModules: 5000 });
+    const deps = testDeps();
+    const planned = await cli(sb, ["plan", ...baseArgs(sb)], deps);
+    expect(planned.code).toBe(0);
+    const id = /plan-\d{8}T\d{6}Z-[0-9a-f]{8}/.exec(planned.out)?.[0] as string;
+    return { sb, id };
+  }
+
+  /** deps whose runner plays the part of zenity: `answer` is its exit code. */
+  function zenityDeps(answer: number) {
+    const base = testDeps();
+    const calls: Array<{ command: string; args: readonly string[] }> = [];
+    return {
+      calls,
+      deps: {
+        ...base,
+        run: async (command: string, args: readonly string[], o?: Parameters<typeof base.run>[2]) => {
+          if (command === "zenity") {
+            calls.push({ command, args });
+            return { code: args[0] === "--version" ? 0 : answer, stdout: "", stderr: "" };
+          }
+          return base.run(command, args, o);
+        },
+      },
+    };
+  }
+
+  it("an approving dialog issues the approval without any terminal and without prompting", async () => {
+    const { sb, id } = await plannedForDialog();
+    const { deps, calls } = zenityDeps(0);
+    const r = await cli(sb, ["approve", id, "--approver", "dialog", "--state-dir", sb.state], deps, { tty: false, env: { DISPLAY: ":0" } });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("approved until");
+    expect(r.io.asked).toEqual([]);
+    expect(readdirSync(join(sb.state, "approvals")).filter((n) => n.endsWith(".json"))).toHaveLength(1);
+    const asked = calls.at(-1) as { args: readonly string[] };
+    expect(asked.args[0]).toBe("--question");
+    expect(JSON.stringify(readFileSync(join(sb.state, "audit.jsonl"), "utf8"))).toContain("os-dialog");
+  });
+
+  it("a cancelled dialog exits 1 and issues nothing", async () => {
+    const { sb, id } = await plannedForDialog();
+    const { deps } = zenityDeps(1);
+    const r = await cli(sb, ["approve", id, "--approver", "dialog", "--state-dir", sb.state], deps, { env: { DISPLAY: ":0" } });
+    expect(r.code).toBe(1);
+    expect(readdirSync(join(sb.state, "approvals")).filter((n) => n.endsWith(".json"))).toHaveLength(0);
+    expect(readFileSync(join(sb.state, "audit.jsonl"), "utf8")).toContain("approval-declined");
+  });
+
+  it("without a graphical session the dialog approver is unavailable and nothing falls back to the terminal", async () => {
+    const { sb, id } = await plannedForDialog();
+    const { deps } = zenityDeps(0);
+    const r = await cli(sb, ["approve", id, "--approver", "dialog", "--state-dir", sb.state], deps, { tty: true, env: {}, answers: ["anything"] });
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("no OS confirmation dialog is available");
+    expect(r.io.asked).toEqual([]);
+  });
+
+  it("an unknown --approver value is a usage error", async () => {
+    const { sb, id } = await plannedForDialog();
+    const r = await cli(sb, ["approve", id, "--approver", "telepathy", "--state-dir", sb.state], testDeps(), { tty: true });
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("--approver must be");
+  });
+
+  it("the dialog approver does not bypass the age rule for old plans", async () => {
+    const { sb, id } = await plannedForDialog();
+    const { deps } = zenityDeps(0);
+    const old = { ...deps, now: () => Date.now() + 25 * 3_600_000 };
+    const r = await cli(sb, ["approve", id, "--approver", "dialog", "--state-dir", sb.state], old, { env: { DISPLAY: ":0" } });
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("older than 24 hours");
+  });
+});

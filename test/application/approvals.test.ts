@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { approvePlan, consumeApproval, issueApproval, verifyApproval, type ApprovePlanOptions, type ApprovePlanPorts, type IssueApprovalPorts } from "../../src/application/approvals.js";
+import { approvePlan, consumeApproval, issueApproval, verifyApproval, type ApprovePlanPorts, type IssueApprovalPorts } from "../../src/application/approvals.js";
+import { APPROVAL_PAGE_SIZE, terminalApprover, type Approver, type ApprovalView } from "../../src/application/approvers.js";
 import { createPlan } from "../../src/application/plans.js";
 import type { KeyStore } from "../../src/application/ports/planning.js";
 import { DEFAULT_VALIDITY_MS, MAX_VALIDITY_MS } from "../../src/domain/approval/approval.js";
@@ -51,9 +52,18 @@ async function newPlan(w: World, path = `${ROOT}/alpha/node_modules`): Promise<P
   return (await createPlan({ clock: w.clock, ids: w.ids, plans: w.plans, events: w.audit }, makeConfig(), { fs: [fsInput(path)], docker: [], reports: [] })).plan;
 }
 
-const describeLines = (plan: Plan, validityMs: number) => [`Plan ${plan.id}`, `valid for ${validityMs / MIN} minutes`];
-const options = (validityMs = DEFAULT_VALIDITY_MS, describe: ApprovePlanOptions["describe"] = describeLines): ApprovePlanOptions => ({ validityMs, describe });
-const typing = (plan: Plan, extra: TerminalOptions = {}) => new ScriptedTerminal([digestPrefix(plan.digest)], extra);
+const view: ApprovalView = {
+  header: (plan, validityMs) => [`Plan ${plan.id}`, `valid for ${validityMs / MIN} minutes`],
+  candidates: (plan) => plan.candidates.map((c) => `candidate ${c.id}`),
+};
+const typing = (plan: Plan, extra: TerminalOptions = {}) => new ScriptedTerminal([plan.digest], extra);
+const via = (term: ScriptedTerminal, pageSize?: number): Approver => terminalApprover(term, view, pageSize);
+
+/** A plan with `n` file-system candidates (distinct projects under the root). */
+async function bigPlan(w: World, n: number): Promise<Plan> {
+  const fs = Array.from({ length: n }, (_, i) => fsInput(`${ROOT}/p${String(i).padStart(4, "0")}/node_modules`));
+  return (await createPlan({ clock: w.clock, ids: w.ids, plans: w.plans, events: w.audit }, makeConfig(), { fs, docker: [], reports: [] })).plan;
+}
 
 describe("issueApproval", () => {
   it("stores a record under the plan digest and returns it", async () => {
@@ -265,18 +275,20 @@ describe("consumeApproval", () => {
 });
 
 describe("approvePlan", () => {
-  it("issues an approval when the human types the digest prefix, and logs it in order", async () => {
+  it("issues an approval when the human types the full digest, and logs it in order", async () => {
     const w = setup();
     const plan = await newPlan(w);
-    const term = typing(plan);
-    const result = await approvePlan(w.approvePorts, term, plan, options());
+    const result = await approvePlan(w.approvePorts, via(typing(plan)), plan, DEFAULT_VALIDITY_MS);
     expect(result.approved).toBe(true);
     if (!result.approved) return;
     expect(result.record.planDigest).toBe(plan.digest);
     expect(result.record.expiresAt).toBe(w.clock.now() + DEFAULT_VALIDITY_MS);
     expect(await w.audit.logged()).toEqual([
       { name: "plan-created", data: expect.objectContaining({ planId: plan.id, candidates: 1 }) },
-      { name: "approval-issued", data: { planId: plan.id, planDigest: plan.digest, expiresAt: result.record.expiresAt, nonce: result.record.nonce } },
+      {
+        name: "approval-issued",
+        data: { planId: plan.id, planDigest: plan.digest, expiresAt: result.record.expiresAt, nonce: result.record.nonce, approver: "terminal" },
+      },
     ]);
     expect((await w.audit.verify()).ok).toBe(true);
   });
@@ -284,50 +296,70 @@ describe("approvePlan", () => {
   it("the stored approval verifies and then expires with the clock", async () => {
     const w = setup();
     const plan = await newPlan(w);
-    const result = await approvePlan(w.approvePorts, typing(plan), plan, options(2 * MIN));
+    const result = await approvePlan(w.approvePorts, via(typing(plan)), plan, 2 * MIN);
     if (!result.approved) throw new Error("expected approval");
     expect(await verifyApproval(w.verifyPorts, plan)).toEqual({ ok: true, record: result.record });
     w.clock.advance(2 * MIN);
     expect(await verifyApproval(w.verifyPorts, plan)).toEqual({ ok: false, reason: "approval has expired" });
   });
 
-  it("prints the description lines through the terminal before prompting", async () => {
+  it("prints the header and every candidate through the terminal before prompting", async () => {
     const w = setup();
     const plan = await newPlan(w);
     const term = typing(plan);
-    await approvePlan(w.approvePorts, term, plan, options(5 * MIN));
-    expect(term.written).toEqual([`Plan ${plan.id}`, "valid for 5 minutes"]);
-    expect(term.prompts).toEqual([`Type ${digestPrefix(plan.digest)} to approve this plan (first 8 characters of its digest), anything else cancels: `]);
+    await approvePlan(w.approvePorts, via(term), plan, 5 * MIN);
+    expect(term.written).toEqual([`Plan ${plan.id}`, "valid for 5 minutes", "candidate c0001", ""]);
+    expect(term.prompts).toHaveLength(1);
   });
 
-  it("hands the plan and the validity to the describe callback", async () => {
+  it("the prompt does not contain the digest or any prefix of it (it must be read elsewhere)", async () => {
     const w = setup();
     const plan = await newPlan(w);
-    const seen: Array<[Plan, number]> = [];
-    await approvePlan(w.approvePorts, typing(plan), plan, options(7 * MIN, (p, v) => (seen.push([p, v]), [])));
-    expect(seen).toEqual([[plan, 7 * MIN]]);
+    const term = typing(plan);
+    await approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS);
+    const everything = [...term.written, ...term.prompts].join("\n");
+    expect(everything).not.toContain(plan.digest);
+    expect(everything).not.toContain(digestPrefix(plan.digest));
+    expect(everything).not.toContain(plan.digest.slice(0, 4));
+    expect(term.prompts[0]).toContain("full plan digest");
+    expect(term.prompts[0]).toContain("disk-janitor explain");
   });
 
-  it("accepts the digest prefix with surrounding whitespace", async () => {
+  it("the old 8-character prefix is no longer enough", async () => {
     const w = setup();
     const plan = await newPlan(w);
-    const term = new ScriptedTerminal([`  ${digestPrefix(plan.digest)}\n`]);
-    expect((await approvePlan(w.approvePorts, term, plan, options())).approved).toBe(true);
+    const term = new ScriptedTerminal([digestPrefix(plan.digest)]);
+    expect(await approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS)).toEqual({ approved: false });
+    expect(w.approvals.size).toBe(0);
+  });
+
+  it("accepts the full digest with surrounding whitespace", async () => {
+    const w = setup();
+    const plan = await newPlan(w);
+    const term = new ScriptedTerminal([`  ${plan.digest}\n`]);
+    expect((await approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS)).approved).toBe(true);
   });
 
   it("the approval is bound to this plan only", async () => {
     const w = setup();
     const planA = await newPlan(w, `${ROOT}/alpha/node_modules`);
     const planB = await newPlan(w, `${ROOT}/beta/node_modules`);
-    await approvePlan(w.approvePorts, typing(planA), planA, options());
+    await approvePlan(w.approvePorts, via(typing(planA)), planA, DEFAULT_VALIDITY_MS);
     expect((await verifyApproval(w.verifyPorts, planA)).ok).toBe(true);
     expect((await verifyApproval(w.verifyPorts, planB)).ok).toBe(false);
+  });
+
+  it("the digest of another plan does not approve this one", async () => {
+    const w = setup();
+    const planA = await newPlan(w, `${ROOT}/alpha/node_modules`);
+    const planB = await newPlan(w, `${ROOT}/beta/node_modules`);
+    expect(await approvePlan(w.approvePorts, via(new ScriptedTerminal([planB.digest])), planA, DEFAULT_VALIDITY_MS)).toEqual({ approved: false });
   });
 
   it("an approval cannot be replayed after it is consumed", async () => {
     const w = setup();
     const plan = await newPlan(w);
-    const result = await approvePlan(w.approvePorts, typing(plan), plan, options());
+    const result = await approvePlan(w.approvePorts, via(typing(plan)), plan, DEFAULT_VALIDITY_MS);
     if (!result.approved) throw new Error("expected approval");
     const copy = (await w.approvals.read(plan.digest)) as string;
     await consumeApproval({ approvals: w.approvals, events: w.audit }, result.record);
@@ -336,33 +368,137 @@ describe("approvePlan", () => {
     expect((await w.audit.logged()).map((e) => e.name)).toEqual(["plan-created", "approval-issued", "approval-consumed"]);
   });
 
+  describe("every candidate is shown, in pages", () => {
+    it("lists all 45 candidates in pages of 20 and asks between pages", async () => {
+      const w = setup();
+      const plan = await bigPlan(w, 45);
+      const term = new ScriptedTerminal(["", "", plan.digest]);
+      const result = await approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS);
+      expect(result.approved).toBe(true);
+      const shown = term.written.filter((l) => l.startsWith("candidate "));
+      expect(shown).toHaveLength(45);
+      expect(shown[0]).toBe("candidate c0001");
+      expect(shown.at(-1)).toBe("candidate c0045");
+      expect(term.prompts[0]).toContain("20 of 45 candidates shown");
+      expect(term.prompts[1]).toContain("40 of 45 candidates shown");
+      expect(term.prompts).toHaveLength(3);
+    });
+
+    it("does not truncate large plans: 300 candidates are all displayed", async () => {
+      const w = setup();
+      const plan = await bigPlan(w, 300);
+      const pages = Math.ceil(300 / APPROVAL_PAGE_SIZE) - 1;
+      const term = new ScriptedTerminal([...Array<string>(pages).fill(""), plan.digest]);
+      await approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS);
+      expect(term.written.filter((l) => l.startsWith("candidate "))).toHaveLength(300);
+    });
+
+    it("q at a page break cancels: later candidates are not shown, the digest is never asked, nothing is issued", async () => {
+      const w = setup();
+      const plan = await bigPlan(w, 45);
+      const term = new ScriptedTerminal(["q"]);
+      expect(await approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS)).toEqual({ approved: false });
+      expect(term.written.filter((l) => l.startsWith("candidate "))).toHaveLength(20);
+      expect(term.prompts).toHaveLength(1);
+      expect(w.approvals.size).toBe(0);
+      expect((await w.audit.logged()).at(-1)).toEqual({ name: "approval-declined", data: { planId: plan.id, planDigest: plan.digest, approver: "terminal" } });
+    });
+
+    it("a plan that fits on one page asks only for the digest", async () => {
+      const w = setup();
+      const plan = await bigPlan(w, APPROVAL_PAGE_SIZE);
+      const term = typing(plan);
+      await approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS);
+      expect(term.prompts).toHaveLength(1);
+    });
+  });
+
   describe("declined", () => {
-    it.each(["", "no", "y", "yes", digestPrefix("0123abcd" + "0".repeat(56)), "UPPER", "x".repeat(100)])("answer %j publishes approval-declined and issues nothing", async (answer) => {
+    it.each(["", "no", "y", "yes", "0123abcd", "UPPER", "x".repeat(100)])("answer %j publishes approval-declined and issues nothing", async (answer) => {
       const w = setup();
       const plan = await newPlan(w);
       const term = new ScriptedTerminal([answer]);
-      expect(await approvePlan(w.approvePorts, term, plan, options())).toEqual({ approved: false });
+      expect(await approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS)).toEqual({ approved: false });
       expect(await w.audit.logged()).toEqual([
         { name: "plan-created", data: expect.anything() },
-        { name: "approval-declined", data: { planId: plan.id, planDigest: plan.digest } },
+        { name: "approval-declined", data: { planId: plan.id, planDigest: plan.digest, approver: "terminal" } },
       ]);
       expect(w.approvals.size).toBe(0);
       expect(w.vault.key).toBeNull();
     });
 
-    it("an uppercase copy of the prefix is wrong", async () => {
+    it("an uppercase copy of the digest is wrong", async () => {
       const w = setup();
       const plan = await newPlan(w);
-      const term = new ScriptedTerminal([digestPrefix(plan.digest).toUpperCase() + "x"]);
-      expect((await approvePlan(w.approvePorts, term, plan, options())).approved).toBe(false);
+      const term = new ScriptedTerminal([plan.digest.toUpperCase()]);
+      expect((await approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS)).approved).toBe(false);
     });
 
     it("still shows the plan before the human declines", async () => {
       const w = setup();
       const plan = await newPlan(w);
       const term = new ScriptedTerminal(["no"]);
-      await approvePlan(w.approvePorts, term, plan, options());
-      expect(term.written).toHaveLength(2);
+      await approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS);
+      expect(term.written).toEqual([`Plan ${plan.id}`, "valid for 15 minutes", "candidate c0001", ""]);
+    });
+  });
+
+  describe("another approver (an OS dialog) goes through the same use case", () => {
+    const dialog = (decision: "approved" | "declined", seen: string[] = []): Approver => ({
+      kind: "os-dialog",
+      decide: async (plan) => {
+        seen.push(plan.id);
+        return decision;
+      },
+    });
+
+    it("an approving dialog issues the approval and records the approver kind", async () => {
+      const w = setup();
+      const plan = await newPlan(w);
+      const seen: string[] = [];
+      const result = await approvePlan(w.approvePorts, dialog("approved", seen), plan, DEFAULT_VALIDITY_MS);
+      expect(result.approved).toBe(true);
+      expect(seen).toEqual([plan.id]);
+      const last = (await w.audit.logged()).at(-1);
+      expect(last).toEqual({ name: "approval-issued", data: expect.objectContaining({ planId: plan.id, approver: "os-dialog" }) });
+    });
+
+    it("a declining dialog issues nothing and records the decline with the approver kind", async () => {
+      const w = setup();
+      const plan = await newPlan(w);
+      expect(await approvePlan(w.approvePorts, dialog("declined"), plan, DEFAULT_VALIDITY_MS)).toEqual({ approved: false });
+      expect((await w.audit.logged()).at(-1)).toEqual({ name: "approval-declined", data: { planId: plan.id, planDigest: plan.digest, approver: "os-dialog" } });
+      expect(w.approvals.size).toBe(0);
+    });
+
+    it("a dialog approver is not subject to the terminal session checks", async () => {
+      const w = setup();
+      const plan = await newPlan(w);
+      // no terminal exists at all; only the plan age rule still applies
+      expect((await approvePlan(w.approvePorts, dialog("approved"), plan, DEFAULT_VALIDITY_MS)).approved).toBe(true);
+    });
+
+    it("the plan age rule still applies and the approver is never asked", async () => {
+      const w = setup();
+      const plan = await newPlan(w);
+      w.clock.advance(MAX_PLAN_AGE_MS + 1);
+      const seen: string[] = [];
+      await expect(approvePlan(w.approvePorts, dialog("approved", seen), plan, DEFAULT_VALIDITY_MS)).rejects.toThrow(PlanTooOldError);
+      expect(seen).toEqual([]);
+    });
+
+    it("an approver preflight failure stops everything before the plan age check", async () => {
+      const w = setup();
+      const plan = await newPlan(w);
+      w.clock.advance(MAX_PLAN_AGE_MS + 1);
+      const failing: Approver = {
+        kind: "os-dialog",
+        preflight: () => {
+          throw new Error("preflight says no");
+        },
+        decide: async () => "approved",
+      };
+      await expect(approvePlan(w.approvePorts, failing, plan, DEFAULT_VALIDITY_MS)).rejects.toThrow("preflight says no");
     });
   });
 
@@ -383,8 +519,8 @@ describe("approvePlan", () => {
       const w = setup();
       const plan = await newPlan(w);
       const term = typing(plan, opts);
-      await expect(approvePlan(w.approvePorts, term, plan, options())).rejects.toThrow(HumanRequiredError);
-      await expect(approvePlan(w.approvePorts, term, plan, options())).rejects.toThrow("approve needs an interactive terminal on stdin and stdout");
+      await expect(approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS)).rejects.toThrow(HumanRequiredError);
+      await expect(approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS)).rejects.toThrow("approve needs an interactive terminal on stdin and stdout");
       await expectUntouched(w, term);
     });
 
@@ -392,7 +528,7 @@ describe("approvePlan", () => {
       const w = setup();
       const plan = await newPlan(w);
       const term = typing(plan, { env: { [marker]: "1" } });
-      await expect(approvePlan(w.approvePorts, term, plan, options())).rejects.toThrow(`approve refuses to run while ${marker} is set`);
+      await expect(approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS)).rejects.toThrow(`approve refuses to run while ${marker} is set`);
       await expectUntouched(w, term);
     });
 
@@ -401,8 +537,8 @@ describe("approvePlan", () => {
       const plan = await newPlan(w);
       w.clock.advance(MAX_PLAN_AGE_MS + 1);
       const term = typing(plan);
-      await expect(approvePlan(w.approvePorts, term, plan, options())).rejects.toThrow(PlanTooOldError);
-      await expect(approvePlan(w.approvePorts, term, plan, options())).rejects.toThrow("the plan is older than 24 hours; create a new one");
+      await expect(approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS)).rejects.toThrow(PlanTooOldError);
+      await expect(approvePlan(w.approvePorts, via(term), plan, DEFAULT_VALIDITY_MS)).rejects.toThrow("the plan is older than 24 hours; create a new one");
       await expectUntouched(w, term);
     });
 
@@ -410,20 +546,20 @@ describe("approvePlan", () => {
       const w = setup();
       const plan = await newPlan(w);
       w.clock.advance(MAX_PLAN_AGE_MS);
-      expect((await approvePlan(w.approvePorts, typing(plan), plan, options())).approved).toBe(true);
+      expect((await approvePlan(w.approvePorts, via(typing(plan)), plan, DEFAULT_VALIDITY_MS)).approved).toBe(true);
     });
 
     it("the human check comes before the plan age check", async () => {
       const w = setup();
       const plan = await newPlan(w);
       w.clock.advance(MAX_PLAN_AGE_MS + 1);
-      await expect(approvePlan(w.approvePorts, typing(plan, { stdinIsTTY: false }), plan, options())).rejects.toThrow(HumanRequiredError);
+      await expect(approvePlan(w.approvePorts, via(typing(plan, { stdinIsTTY: false })), plan, DEFAULT_VALIDITY_MS)).rejects.toThrow(HumanRequiredError);
     });
 
     it("an invalid validity after a correct confirmation issues and publishes nothing", async () => {
       const w = setup();
       const plan = await newPlan(w);
-      await expect(approvePlan(w.approvePorts, typing(plan), plan, options(0))).rejects.toThrow("approval validity must be between");
+      await expect(approvePlan(w.approvePorts, via(typing(plan)), plan, 0)).rejects.toThrow("approval validity must be between");
       expect(w.approvals.size).toBe(0);
       expect((await w.audit.logged()).map((e) => e.name)).toEqual(["plan-created"]);
     });

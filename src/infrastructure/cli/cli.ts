@@ -5,7 +5,9 @@ import { join, resolve } from "node:path";
 import { arch, homedir, platform } from "node:os";
 import { applyPlan, ApplyError } from "../../composition/disposal.js";
 import { approvePlan } from "../../application/approvals.js";
+import { terminalApprover } from "../../application/approvers.js";
 import { planningPorts } from "../../composition/planning.js";
+import { createOsDialogApprover, ApproverUnavailableError } from "../process/os-dialog.js";
 import { DEFAULT_VALIDITY_MS, MAX_VALIDITY_MS } from "../../domain/approval/approval.js";
 import { AuditLog } from "../state/audit-log.js";
 import { defaultStateDir, type RawConfig } from "../../domain/model/config.js";
@@ -13,7 +15,7 @@ import { loadConfigFile } from "../config-file.js";
 import { resolveConfig } from "../../composition/planning.js";
 import { defaultDeps, type Deps } from "../../composition/deps.js";
 import { escapeText, safeJson } from "../../domain/shared/escape.js";
-import { describeReport, formatBytes, formatTime, renderPlanSummary, renderScan, describeCandidate } from "./format.js";
+import { describeReport, formatBytes, formatTime, renderApprovalCandidates, renderApprovalHeader, renderPlanSummary, renderScan, describeCandidate } from "./format.js";
 import { assertHumanSession, digestPrefix, HumanRequiredError } from "../../domain/policy/human.js";
 import { confirmByTyping, type HumanIO } from "../../application/human-confirmation.js";
 import { createPlan, loadPlan, openStateFor } from "../../composition/planning.js";
@@ -23,7 +25,7 @@ import { DEFAULT_PURGE_TTL_DAYS, listQuarantine, previewRestore, purgeCandidates
 import { scan } from "../../composition/discovery.js";
 import { openState, StateError } from "../state/state-dir.js";
 import { loadKey } from "../state/key-store.js";
-import { DAY_MS } from "../../domain/model/types.js";
+import { DAY_MS, type Plan } from "../../domain/model/types.js";
 import { RootsError } from "../../domain/policy/roots.js";
 import { LockHeldError } from "../../domain/errors.js";
 
@@ -34,6 +36,8 @@ export interface CliIO {
   stdoutIsTTY: boolean;
   env: Record<string, string | undefined>;
   cwd: string;
+  /** process.platform of the host (injectable so tests do not depend on the OS they run on). */
+  platform: string;
   ask(question: string): Promise<string>;
 }
 
@@ -45,10 +49,10 @@ commands:
   scan                  read-only: list reclaimable candidates
   plan                  scan and write a plan file (does not change anything)
   explain <plan>        show a plan in detail and verify its digest
-  approve <plan>        HUMAN ONLY (interactive terminal): approve a plan for 15 minutes
+  approve <plan>        approve a plan for 15 minutes (interactive terminal, or an OS dialog with --approver dialog)
   apply <plan>          move an approved plan's candidates into quarantine
   restore <planId|path> move quarantined items back to where they came from
-  purge                 HUMAN ONLY: permanently delete quarantined items older than the TTL
+  purge                 permanently delete quarantined items older than the TTL (interactive terminal)
   status                show state directory, quarantine and audit status
   audit                 print the hash-chained audit log
   doctor                check permissions and file system support
@@ -65,6 +69,7 @@ options:
   --build-min-age-days <n>, --cache-min-age-days <n>, --min-size <bytes>
   --out <file>          write the plan here instead of the state directory
   --minutes <n>         approval validity in minutes (default 15, max 60)
+  --approver <kind>     approve: 'terminal' (default) or 'dialog' (OS confirmation dialog, best effort)
   --ttl-days <n>        purge only items quarantined at least this long (default 7)
   --dry-run             purge: list what would be deleted
   --json                machine-readable output (scan, status)
@@ -86,6 +91,7 @@ const OPTIONS = {
   "min-size": { type: "string" },
   out: { type: "string" },
   minutes: { type: "string" },
+  approver: { type: "string" },
   "ttl-days": { type: "string" },
   "dry-run": { type: "boolean" },
   json: { type: "boolean" },
@@ -208,6 +214,7 @@ function reportError(e: unknown, io: CliIO): number {
   }
   if (
     e instanceof HumanRequiredError ||
+    e instanceof ApproverUnavailableError ||
     e instanceof RootsError ||
     e instanceof StateError ||
     e instanceof PlanIntegrityError ||
@@ -288,7 +295,14 @@ async function cmdExplain(values: Values, ref: string | undefined, io: CliIO, _d
 
 async function cmdApprove(values: Values, ref: string | undefined, io: CliIO, deps: Deps): Promise<number> {
   const human = humanIO(io);
-  assertHumanSession(human, "approve");
+  const mode = values.approver ?? "terminal";
+  if (mode !== "terminal" && mode !== "dialog") throw new UsageError("--approver must be 'terminal' or 'dialog'");
+  const view = {
+    header: (p: Plan, ms: number) => renderApprovalHeader(p, ms, io.env),
+    candidates: renderApprovalCandidates,
+  };
+  const approver = mode === "dialog" ? await createOsDialogApprover(deps.run, io.platform, io.env) : terminalApprover(human, view);
+  approver.preflight?.();
   const state = await openStateForPlanless(values, io);
   const plan = await loadPlan(need(ref, "plan"), state, io.cwd);
   await openState(state.dir, plan.config.roots);
@@ -296,15 +310,7 @@ async function cmdApprove(values: Values, ref: string | undefined, io: CliIO, de
   const validityMs = minutes === undefined ? DEFAULT_VALIDITY_MS : minutes * 60_000;
   if (validityMs <= 0 || validityMs > MAX_VALIDITY_MS) throw new UsageError("--minutes must be between 1 and 60");
 
-  const result = await approvePlan(planningPorts(state, deps), human, plan, {
-    validityMs,
-    describe: (p, ms) => [
-      ...renderPlanSummary(p),
-      "",
-      `Approving lets 'apply' move these directories into quarantine for ${Math.round(ms / 60_000)} minutes.`,
-      "Nothing is deleted by apply; items stay restorable until a separate 'purge'.",
-    ],
-  });
+  const result = await approvePlan(planningPorts(state, deps), approver, plan, validityMs);
   if (!result.approved) {
     io.err("not approved\n");
     return 1;
@@ -365,7 +371,7 @@ async function cmdPurge(values: Values, io: CliIO, deps: Deps): Promise<number> 
   for (const l of lines) human.write(l);
   human.write("This cannot be undone.");
   const expected = digestPrefix(purgeSetDigest(items));
-  if (!(await confirmByTyping(human, expected, "permanently delete them"))) {
+  if (!(await confirmByTyping(human, expected, "Type the confirmation code printed by `disk-janitor purge --dry-run` to permanently delete them"))) {
     io.err("purge cancelled\n");
     return 1;
   }
@@ -501,6 +507,7 @@ export function realIO(): CliIO {
     stdoutIsTTY: !!process.stdout.isTTY,
     env: process.env,
     cwd: process.cwd(),
+    platform: process.platform,
     ask: (q) =>
       new Promise((resolveAnswer) => {
         const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });

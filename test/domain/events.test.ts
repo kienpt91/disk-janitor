@@ -5,8 +5,8 @@ type Ctor = (d: never) => DomainEvent;
 
 const cases: Array<[keyof typeof events, string, Record<string, unknown>]> = [
   ["planCreated", "plan-created", { planId: "p1", planDigest: "d1", candidates: 3, path: "/state/plans/p1.json" }],
-  ["approvalIssued", "approval-issued", { planId: "p1", planDigest: "d1", expiresAt: 1_900_000_000_000, nonce: "ab".repeat(16) }],
-  ["approvalDeclined", "approval-declined", { planId: "p1", planDigest: "d1" }],
+  ["approvalIssued", "approval-issued", { planId: "p1", planDigest: "d1", expiresAt: 1_900_000_000_000, nonce: "ab".repeat(16), approver: "terminal" }],
+  ["approvalDeclined", "approval-declined", { planId: "p1", planDigest: "d1", approver: "os-dialog" }],
   ["approvalConsumed", "approval-consumed", { planId: "p1", planDigest: "d1", nonce: "cd".repeat(16) }],
   ["applyRefused", "apply-refused", { planId: "p1", planDigest: "d1", reason: "plan changed" }],
   ["applyStarted", "apply-start", { planId: "p1", planDigest: "d1", fs: 4 }],
@@ -64,7 +64,7 @@ describe("domain events", () => {
   });
 
   it("constructors do not share or alias their input", () => {
-    const input = { planId: "p1", planDigest: "d1" };
+    const input = { planId: "p1", planDigest: "d1", approver: "terminal" };
     const e = events.approvalDeclined(input);
     expect(e.data).toEqual(input);
   });

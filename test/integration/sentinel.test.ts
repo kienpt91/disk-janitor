@@ -67,7 +67,7 @@ describe("sentinel: default home and state resolution never reach the tripwires"
     const id = /plan:\s+(plan-\S+)/.exec(planned.out)?.[1] ?? "";
     const digest = /digest:\s+([0-9a-f]{64})/.exec(planned.out)?.[1] ?? "";
     expect(existsSync(join(xdg, "disk-janitor", "plans", `${id}.json`))).toBe(true);
-    const approved = await cli(sb, ["approve", id, "--home", sb.home], testDeps(), { env, tty: true, answers: [digest.slice(0, 8)] });
+    const approved = await cli(sb, ["approve", id, "--home", sb.home], testDeps(), { env, tty: true, answers: [digest] });
     expect(approved.code).toBe(0);
     const applied = await cli(sb, ["apply", id, ...flags], testDeps(), { env });
     expect(applied.code).toBe(0);

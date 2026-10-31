@@ -38,7 +38,7 @@ const sampleEvents = (n: number): DomainEvent[] =>
     i % 3 === 0
       ? events.planCreated({ planId: `p${i}`, planDigest: "d".repeat(64), candidates: i, path: `/plans/p${i}.json` })
       : i % 3 === 1
-        ? events.approvalIssued({ planId: `p${i}`, planDigest: "d".repeat(64), expiresAt: 1_000 + i, nonce: String(i).padStart(32, "0") })
+        ? events.approvalIssued({ planId: `p${i}`, planDigest: "d".repeat(64), expiresAt: 1_000 + i, nonce: String(i).padStart(32, "0"), approver: "terminal" })
         : events.approvalConsumed({ planId: `p${i}`, planDigest: "d".repeat(64), nonce: String(i).padStart(32, "0") }),
   );
 

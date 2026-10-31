@@ -37,8 +37,8 @@ const ev = (name: EventName, data: Record<string, unknown>): DomainEvent => ({ n
 
 export const events = {
   planCreated: (d: { planId: string; planDigest: string; candidates: number; path: string }) => ev("plan-created", d),
-  approvalIssued: (d: { planId: string; planDigest: string; expiresAt: number; nonce: string }) => ev("approval-issued", d),
-  approvalDeclined: (d: { planId: string; planDigest: string }) => ev("approval-declined", d),
+  approvalIssued: (d: { planId: string; planDigest: string; expiresAt: number; nonce: string; approver: string }) => ev("approval-issued", d),
+  approvalDeclined: (d: { planId: string; planDigest: string; approver: string }) => ev("approval-declined", d),
   approvalConsumed: (d: { planId: string; planDigest: string; nonce: string }) => ev("approval-consumed", d),
   applyRefused: (d: { planId: string; planDigest: string; reason: string }) => ev("apply-refused", d),
   applyStarted: (d: { planId: string; planDigest: string; fs: number }) => ev("apply-start", d),
