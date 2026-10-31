@@ -349,11 +349,11 @@ Tests are organized by layer. Counts are from a full run:
 | --- | ---: | --- |
 | `test/architecture.test.ts` | 13 | the dependency rule (and the checker itself) |
 | `test/domain` | 1021 | pure unit and property-style tests of invariants, state transitions and domain events (seeded generators) |
-| `test/application` | 346 | use cases driven with in-memory fakes of every port; assertions on results, state and ordered events |
+| `test/application` | 350 | use cases driven with in-memory fakes of every port; assertions on results, state and ordered events |
 | `test/infrastructure` | 399 | contract suites: the same tests run against the in-memory fake and the real adapter in temp directories (file system, git, lsof, docker CLI, plan / approval / key / audit / quarantine stores, lock) |
-| `test/integration` | 740 | real directories and real git repositories through the composition API: every detector, symlink / race / TOCTOU / path-traversal / cross-device / hard-link attacks, plan tampering, approval forgery, hostile names, CLI and MCP in-process |
+| `test/integration` | 750 | real directories and real git repositories through the composition API: every detector, symlink / race / TOCTOU / path-traversal / cross-device / hard-link attacks, plan tampering, approval forgery, hostile names, CLI and MCP in-process |
 | `test/e2e` | 16 | the real built binaries (`disk-janitor`, `disk-janitor-mcp` over stdio) |
-| **total** | **2535** | |
+| **total** | **2549** | |
 
 A tripwire home directory (with `~/Documents`, `~/.ssh` and a decoy project) is created per run, `HOME` points at it for every test, and the suite fails in teardown if a single byte under it changed.
 
@@ -362,10 +362,10 @@ Coverage is measured with vitest's v8 provider (`npm run coverage`) over `src/`,
 ```
 layer            lines  statements  branches  functions   target
 domain            99.7%      99.7%     98.9%     100.0%   >= 95% met
-application       99.1%      98.1%     95.0%      91.7%   >= 90% met
+application       99.4%      98.4%     95.0%      91.7%   >= 90% met
 infrastructure    97.3%      94.2%     83.9%      92.7%   -
 composition      100.0%      97.6%     90.0%      97.0%   -
-overall           98.8%      97.5%     93.7%      96.4%   >= 85% met
+overall           98.8%      97.6%     93.7%      96.4%   >= 85% met
 ```
 
 Line coverage of the infrastructure layer varies between 97.1% and 97.3% from run to run (and between Node 22 and 24); the other numbers were identical on both. Targets (enforced by `vitest.config.ts` thresholds and `scripts/coverage-summary.mjs`): domain >= 95% lines, application >= 90%, overall >= 85%. The numbers above were identical on Node 22 and Node 24 in the final run (infrastructure line coverage moved by +-0.2 points between earlier runs). Least covered files, honestly: `application/inspection.ts` 92.3% (the rethrow of an unexpected `errno` from `lstat`), `infrastructure/process/command-runner.ts` 92.8% lines and 56.5% branches (the `execFile` error branches that need a real failing or timing-out process), `infrastructure/cli/cli.ts` 94.7% (`realIO`, the real-terminal adapter, which only runs inside the spawned binary where the provider cannot see it, and a few `doctor` failure branches), `application/discover.ts` 95.5%. Branch coverage of the infrastructure layer is the weakest number (83.9%): defensive `catch` branches around races and permission errors that cannot be provoked deterministically in a container. Coverage says what ran, not that the assertions are strong; the symlink / race / tamper suites assert exact outcomes (tree hashes unchanged, victim directories intact, exact error codes) rather than just exercising the code.
