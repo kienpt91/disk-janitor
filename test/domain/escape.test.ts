@@ -194,3 +194,73 @@ describe("safeJson", () => {
     }
   });
 });
+
+// Invisible code points can smuggle hidden text past a human (and into a model) without being
+// visible in a terminal or a log. Both escape paths must neutralize them.
+const INVISIBLE: Array<[string, string]> = [
+  ["tag character U+E0041", "\u{e0041}"],
+  ["tag block end U+E007F", "\u{e007f}"],
+  ["tag block cancel U+E0001", "\u{e0001}"],
+  ["variation selector U+FE0F", "\ufe0f"],
+  ["variation selector supplement U+E0100", "\u{e0100}"],
+  ["Hangul filler U+3164", "\u3164"],
+  ["halfwidth Hangul filler U+FFA0", "\uffa0"],
+  ["Hangul choseong filler U+115F", "\u115f"],
+  ["Hangul jungseong filler U+1160", "\u1160"],
+  ["combining grapheme joiner U+034F", "\u034f"],
+  ["Khmer inherent vowel U+17B4", "\u17b4"],
+  ["Mongolian free variation selector U+180B", "\u180b"],
+  ["musical symbol begin beam U+1D173", "\u{1d173}"],
+  ["invisible times U+2062", "\u2062"],
+  ["no-break space U+00A0", "\u00a0"],
+  ["ideographic space U+3000", "\u3000"],
+  ["interlinear annotation anchor U+FFF9", "\ufff9"],
+];
+
+describe.each(INVISIBLE)("invisible code point: %s", (_name, ch) => {
+  const hex = (ch.codePointAt(0) as number).toString(16);
+
+  it("escapeText never lets it through raw", () => {
+    const out = escapeText(`a${ch}b`);
+    expect(out).not.toContain(ch);
+    expect(out.length).toBeGreaterThan(3);
+  });
+
+  it("safeJson never emits it raw and still round-trips through JSON.parse", () => {
+    const value = { name: `dir${ch}name`, list: [`x${ch}`] };
+    const text = safeJson(value);
+    expect(text).not.toContain(ch);
+    expect(JSON.parse(text)).toEqual(value);
+    expect(text.toLowerCase()).toContain(hex.length > 4 ? "\\ud" : `\\u${hex.padStart(4, "0")}`);
+  });
+
+  it("safeJson escapes it inside object keys as well", () => {
+    const text = safeJson({ [`k${ch}`]: 1 });
+    expect(text).not.toContain(ch);
+    expect(Object.keys(JSON.parse(text))).toEqual([`k${ch}`]);
+  });
+});
+
+describe("safeJson keeps legitimate text readable", () => {
+  it("leaves letters, digits, punctuation, CJK and emoji without variation selectors alone", () => {
+    const value = { a: "résumé-プロジェクト-файл_1.txt", b: "😀 ok", c: "a/b c.d" };
+    const text = safeJson(value);
+    expect(text).toContain("résumé-プロジェクト-файл_1.txt");
+    expect(text).toContain("😀");
+    expect(JSON.parse(text)).toEqual(value);
+  });
+
+  it("emits astral escapes as UTF-16 surrogate pairs, which JSON.parse accepts", () => {
+    const text = safeJson("\u{e0041}");
+    expect(text).toBe('"\\udb40\\udc41"');
+    expect(JSON.parse(text)).toBe("\u{e0041}");
+  });
+
+  it("is idempotent on already-escaped output (no raw non-ASCII control or format characters remain)", () => {
+    const hostile = { v: "x\u{e0041}\u202e\u200b\ufe0f\u3164y" };
+    const once = safeJson(hostile);
+    const twice = safeJson(JSON.parse(once));
+    expect(twice).toBe(once);
+    expect(once).toMatch(/^[\x20-\x7e]*$/);
+  });
+});
