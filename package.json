@@ -43,7 +43,15 @@
     "build": "tsc -p tsconfig.build.json",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && npm run build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:domain": "vitest run test/domain",
+    "test:application": "vitest run test/application",
+    "test:infrastructure": "vitest run test/infrastructure",
+    "test:integration": "vitest run test/integration",
+    "test:e2e": "vitest run test/e2e",
+    "test:architecture": "vitest run test/architecture.test.ts",
+    "test:layers": "npm run test:architecture && npm run test:domain && npm run test:application && npm run test:infrastructure && npm run test:integration && npm run test:e2e",
+    "coverage": "vitest run --coverage && node scripts/coverage-summary.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
