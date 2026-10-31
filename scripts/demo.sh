@@ -5,7 +5,7 @@
 set -eu
 
 DEMO=${DEMO:-/tmp/dj-demo}
-CLI="node $(pwd)/dist/bin.js"
+CLI="node $(pwd)/dist/infrastructure/cli/bin.js"
 case "$DEMO" in /tmp/*) ;; *) echo "refusing: DEMO must be under /tmp" >&2; exit 2 ;; esac
 rm -rf "$DEMO"
 mkdir -p "$DEMO/home/projects" "$DEMO/home/Documents" "$DEMO/home/.ssh"
@@ -78,7 +78,9 @@ run() { echo; echo "\$ disk-janitor $*"; $CLI "$@"; }
 OPTS="--root $P --home $HOME --caches --state-dir $DEMO/state"
 
 run scan $OPTS
-run scan $OPTS --verbose --json >/dev/null
+echo; echo "# what was deliberately left alone, and why:"
+echo "$ disk-janitor scan --verbose ..."
+$CLI scan $OPTS --verbose | sed -n '/^skipped/,$p'
 run plan $OPTS
 PLAN=$(ls "$DEMO/state/plans" | sed 's/\.json$//')
 DIGEST=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).digest)' "$DEMO/state/plans/$PLAN.json")

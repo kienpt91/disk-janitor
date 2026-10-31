@@ -15,8 +15,8 @@
   "author": "Kien Phan",
   "type": "module",
   "bin": {
-    "disk-janitor": "dist/bin.js",
-    "disk-janitor-mcp": "dist/mcp-bin.js"
+    "disk-janitor": "dist/infrastructure/cli/bin.js",
+    "disk-janitor-mcp": "dist/infrastructure/mcp/bin.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -26,8 +26,8 @@
       "default": "./dist/index.js"
     },
     "./mcp": {
-      "types": "./dist/mcp.d.ts",
-      "default": "./dist/mcp.js"
+      "types": "./dist/infrastructure/mcp/server.d.ts",
+      "default": "./dist/infrastructure/mcp/server.js"
     }
   },
   "files": [

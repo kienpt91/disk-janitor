@@ -13,6 +13,10 @@ describe("architecture: the dependency rule holds in the real source tree", () =
     expect(layers.has("infrastructure")).toBe(true);
   });
 
+  it("keeps every source file inside a layer (only index.ts lives at the top)", () => {
+    expect(sources.filter((s) => layerOf(s.path) === "legacy").map((s) => s.path)).toEqual([]);
+  });
+
   it("has no dependency-rule violations", () => {
     const violations = findViolations(sources);
     expect(violations.map((v) => `${v.file}: ${v.rule}: ${v.detail}`)).toEqual([]);
@@ -58,8 +62,15 @@ describe("architecture checker: it really detects violations (self-test on synth
     expect(check("domain/other.ts", 'import { createHash } from "node:crypto";')).toContain("domain-has-no-io-dependencies");
   });
 
-  it("flags infrastructure importing composition", () => {
-    expect(check("infrastructure/x.ts", 'import { c } from "../composition/y.js";')).toContain("infrastructure-never-imports-composition");
+  it("flags driven adapters importing composition but allows the CLI and MCP entry points to", () => {
+    expect(check("infrastructure/state/x.ts", 'import { c } from "../../composition/y.js";')).toContain("driven-adapters-never-import-composition");
+    expect(check("infrastructure/process/x.ts", 'import { c } from "../../composition/y.js";')).toContain("driven-adapters-never-import-composition");
+    expect(check("infrastructure/cli/x.ts", 'import { c } from "../../composition/y.js";')).toEqual([]);
+    expect(check("infrastructure/mcp/x.ts", 'import { c } from "../../composition/y.js";')).toEqual([]);
+  });
+
+  it("flags infrastructure importing legacy top-level modules", () => {
+    expect(check("infrastructure/x.ts", 'import { c } from "../legacy.js";')).toContain("infrastructure-never-imports-legacy");
   });
 
   it("ignores imports that only appear in comments", () => {

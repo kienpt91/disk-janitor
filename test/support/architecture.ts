@@ -65,6 +65,15 @@ const IMPURE_TOKENS: Array<[RegExp, string]> = [
 const DOMAIN_BUILTINS = new Set(["node:path"]);
 const APPLICATION_BUILTINS = new Set(["node:path"]);
 
+/**
+ * Driving adapters (the CLI and the MCP server) sit at the edge: they receive requests and call the
+ * composition API. Every other infrastructure module is a driven adapter (file system, git, state
+ * files...), which implements a port and never reaches for the composition root.
+ */
+export function isDrivingAdapter(path: string): boolean {
+  return path.startsWith("infrastructure/cli/") || path.startsWith("infrastructure/mcp/");
+}
+
 export function findViolations(files: SourceFile[]): Violation[] {
   const violations: Violation[] = [];
   for (const f of files) {
@@ -79,7 +88,9 @@ export function findViolations(files: SourceFile[]): Violation[] {
         if (layer === "application" && targetLayer !== "domain" && targetLayer !== "application") {
           add("application-depends-only-inward", `imports ${spec} (${targetLayer})`);
         }
-        if (layer === "infrastructure" && targetLayer === "composition") add("infrastructure-never-imports-composition", `imports ${spec}`);
+        if (layer === "infrastructure" && targetLayer === "composition" && !isDrivingAdapter(f.path)) {
+          add("driven-adapters-never-import-composition", `imports ${spec}`);
+        }
         if (layer === "infrastructure" && targetLayer === "legacy") add("infrastructure-never-imports-legacy", `imports ${spec}`);
         continue;
       }
