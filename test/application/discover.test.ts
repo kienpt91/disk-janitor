@@ -689,3 +689,52 @@ describe("DiscoverCandidates: the walk", () => {
 function out_dist(): void {
   fs.writeFile(`${ROOT}/a/dist/x.js`, { mtimeMs: ago(30) }).writeFile(`${ROOT}/a/package.json`);
 }
+
+describe("DiscoverCandidates: entries that vanish while the walk is running", () => {
+  const errno = (code: string) => Object.assign(new Error(code), { code });
+
+  /** A file system on which chosen paths disappear between being listed and being inspected. */
+  function vanishing(opts: { lstat?: (p: string) => boolean; readdir?: (p: string) => boolean }) {
+    const wrapped = {
+      lstat: async (p: string) => {
+        if (opts.lstat?.(p)) throw errno("ENOENT");
+        return fs.lstat(p);
+      },
+      readdir: async (p: string) => {
+        if (opts.readdir?.(p)) throw errno("ENOENT");
+        return fs.readdir(p);
+      },
+      realpath: (p: string) => fs.realpath(p),
+      rename: (a: string, b: string) => fs.rename(a, b),
+    };
+    return discoverCandidates({ fs: wrapped, git, openFiles: open, docker, clock }, config());
+  }
+
+  it("a directory that disappears between readdir and lstat is skipped; the other projects are still found", async () => {
+    project(`${ROOT}/gone`);
+    const keep = project(`${ROOT}/keep`);
+    const r = await vanishing({ lstat: (p) => p === `${ROOT}/gone` });
+    expect(paths(r)).toEqual([keep]);
+  });
+
+  it("a directory that disappears before it is listed is skipped; the walk continues", async () => {
+    project(`${ROOT}/gone`);
+    const keep = project(`${ROOT}/keep`);
+    const r = await vanishing({ readdir: (p) => p === `${ROOT}/gone` });
+    expect(paths(r)).toEqual([keep]);
+  });
+
+  it("a node_modules that disappears while it is measured is refused with the reason, not offered and not a crash", async () => {
+    const nm = project(`${ROOT}/app`);
+    const r = await vanishing({ lstat: (p) => p === `${nm}/dep` });
+    expect(r.fs).toEqual([]);
+    expect(skippedFor(r, nm)).toEqual(["changed while scanning (ENOENT)"]);
+  });
+
+  it("a source file that disappears while a project is checked for recent activity makes the project skipped, not offered", async () => {
+    const nm = project(`${ROOT}/app`);
+    const r = await vanishing({ lstat: (p) => p === `${ROOT}/app/src/index.js` });
+    expect(r.fs).toEqual([]);
+    expect(skippedFor(r, nm)).toEqual(["project changed while scanning"]);
+  });
+});
