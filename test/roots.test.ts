@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { FileSystem } from "../src/application/ports/common.js";
-import { RootsError, validateRoots } from "../src/roots.js";
+import { RootsError } from "../src/domain/policy/roots.js";
+import { validateRoots } from "../src/application/validate-roots.js";
 import { makeSandbox, testDeps, writeText, type Sandbox } from "./helpers.js";
 
 const fs = testDeps().fs;

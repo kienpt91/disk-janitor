@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { canonicalJson, sha256Hex } from "./domain/shared/canonical.js";
-import { configCore, type Config } from "./config.js";
+import { configCore, type Config } from "./domain/model/config.js";
 import { safeJson } from "./domain/shared/escape.js";
 import { isCanonicalAbsolute } from "./domain/shared/paths.js";
 import type { ScanResult } from "./scan.js";

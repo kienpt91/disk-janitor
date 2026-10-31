@@ -1,11 +1,7 @@
-import { readFile, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
-import { canonicalJson, sha256Hex } from "./domain/shared/canonical.js";
-import type { Deps } from "./composition/deps.js";
-import { validateRoots } from "./roots.js";
-import { arr, bool, int, literal, obj, opt, parseJson, str, type Infer } from "./domain/shared/schema.js";
-import { DETECTOR_IDS, type ConfigCore, type DetectorId } from "./domain/model/types.js";
+import { isAbsolute, join } from "node:path";
+import { canonicalJson, sha256Hex } from "../shared/canonical.js";
+import { arr, bool, int, literal, obj, opt, parseJson, str, type Infer } from "../shared/schema.js";
+import { DETECTOR_IDS, type ConfigCore, type DetectorId } from "./types.js";
 
 export const DEFAULTS = {
   detectors: ["node-modules", "build-output", "git-worktrees", "docker"] as DetectorId[],
@@ -18,7 +14,7 @@ export const DEFAULTS = {
   maxEntriesPerCandidate: 500_000,
 };
 
-const MAX_CONFIG_BYTES = 64 * 1024;
+export const MAX_CONFIG_BYTES = 64 * 1024;
 
 const rawConfigParser = obj({
   roots: opt(arr(str({ min: 1 }), { max: 64 })),
@@ -48,52 +44,33 @@ export function configCoreDigest(core: ConfigCore): string {
   return sha256Hex(canonicalJson(core));
 }
 
-/** Read a JSON config file (at most 64 KiB, unknown keys rejected). */
-export async function loadConfigFile(path: string): Promise<RawConfig> {
-  const st = await stat(path);
-  if (!st.isFile()) throw new Error(`config is not a regular file: ${path}`);
-  if (st.size > MAX_CONFIG_BYTES) throw new Error(`config file is larger than ${MAX_CONFIG_BYTES} bytes`);
-  return parseJson(await readFile(path, "utf8"), rawConfigParser, MAX_CONFIG_BYTES, "config");
-}
-
 export function parseRawConfig(text: string): RawConfig {
   return parseJson(text, rawConfigParser, MAX_CONFIG_BYTES, "config");
 }
 
-export function defaultStateDir(home: string, env: NodeJS.ProcessEnv): string {
+export function defaultStateDir(home: string, env: Readonly<Record<string, string | undefined>>): string {
   const xdg = env["XDG_STATE_HOME"];
   if (xdg && isAbsolute(xdg)) return join(xdg, "disk-janitor");
   return join(home, ".local", "state", "disk-janitor");
 }
 
-export interface ResolveOptions {
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
+export interface ResolvedPlaces {
+  /** Canonical, validated roots. */
+  roots: string[];
+  /** Canonical home directory. */
+  home: string;
+  /** Absolute state directory. */
+  stateDir: string;
 }
 
-/**
- * Turn user input into a validated configuration: roots are canonicalized and checked, the
- * home directory is canonicalized, thresholds are range-checked and the digest computed.
- */
-export async function resolveConfig(raw: RawConfig, deps: Deps, opts: ResolveOptions = {}): Promise<Config> {
-  const env = opts.env ?? process.env;
-  const cwd = opts.cwd ?? process.cwd();
-  const homeInput = raw.home ? resolve(cwd, raw.home) : homedir();
-  let home: string;
-  try {
-    home = await deps.fs.realpath(homeInput);
-  } catch {
-    throw new Error(`home directory does not exist: ${homeInput}`);
-  }
-  const homes = [...new Set([home, homedir()])];
-  const roots = await validateRoots(raw.roots ?? [], { homes, fs: deps.fs, cwd });
-
+/** Apply defaults to user input and bind the result with a digest. Pure: places are resolved by the caller. */
+export function buildConfig(raw: RawConfig, places: ResolvedPlaces): Config {
   const detectors = new Set<DetectorId>(raw.detectors ?? DEFAULTS.detectors);
   if (raw.packageCaches) detectors.add("package-cache");
   if (raw.dockerApply) detectors.add("docker");
   const core: ConfigCore = {
-    roots,
-    home,
+    roots: places.roots,
+    home: places.home,
     detectors: DETECTOR_IDS.filter((d) => detectors.has(d)),
     dockerApply: raw.dockerApply ?? false,
     staleDays: raw.staleDays ?? DEFAULTS.staleDays,
@@ -104,8 +81,7 @@ export async function resolveConfig(raw: RawConfig, deps: Deps, opts: ResolveOpt
     maxCandidates: raw.maxCandidates ?? DEFAULTS.maxCandidates,
     maxEntriesPerCandidate: raw.maxEntriesPerCandidate ?? DEFAULTS.maxEntriesPerCandidate,
   };
-  const stateDir = raw.stateDir ? resolve(cwd, raw.stateDir) : defaultStateDir(home, env);
-  return { ...core, stateDir, digest: configCoreDigest(core) };
+  return { ...core, stateDir: places.stateDir, digest: configCoreDigest(core) };
 }
 
 /** Rebuild the bound core of a Config (without stateDir and digest). */

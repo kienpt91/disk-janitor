@@ -1,9 +1,9 @@
 import { utimesSync } from "node:fs";
-import type { RawConfig } from "../src/config.js";
+import type { RawConfig } from "../src/domain/model/config.js";
 import type { Deps } from "../src/composition/deps.js";
 import type { FileSystem } from "../src/application/ports/common.js";
 import { scan, type ScanResult } from "../src/scan.js";
-import type { Config } from "../src/config.js";
+import type { Config } from "../src/domain/model/config.js";
 import { DAY, makeConfig, testDeps, type FakeRun, type Sandbox } from "./helpers.js";
 
 export type TestDeps = Deps & { calls: FakeRun["calls"] };

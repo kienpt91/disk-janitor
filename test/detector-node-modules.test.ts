@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { FileSystem } from "../src/application/ports/common.js";
 import { nodeFs } from "../src/infrastructure/fs/node-fs.js";
-import { RootsError } from "../src/roots.js";
+import { RootsError } from "../src/domain/policy/roots.js";
 import { ageTree, DAY, git, makeConfig, makeProject, makeSandbox, testDeps, treeHash, writeBytes, writeText } from "./helpers.js";
 import { candidatePaths, recordingFs, scanFor, skippedFor, touch } from "./helpers-detectors.js";
 

@@ -2,8 +2,9 @@ import { existsSync, readFileSync, readdirSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { defaultStateDir, resolveConfig } from "../src/config.js";
-import { RootsError } from "../src/roots.js";
+import { defaultStateDir } from "../src/domain/model/config.js";
+import { resolveConfig } from "../src/composition/planning.js";
+import { RootsError } from "../src/domain/policy/roots.js";
 import { makeProject, makeSandbox, testDeps, treeHash } from "./helpers.js";
 import { baseArgs, cli, cliApprove, cliPlan } from "./helpers-cli.js";
 

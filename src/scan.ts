@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { Config } from "./config.js";
+import type { Config } from "./domain/model/config.js";
 import type { Deps } from "./composition/deps.js";
 import { lstatOrNull } from "./application/inspection.js";
 import { loadOpenFiles } from "./openfiles.js";

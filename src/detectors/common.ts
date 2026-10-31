@@ -1,4 +1,4 @@
-import type { Config } from "../config.js";
+import type { Config } from "../domain/model/config.js";
 import type { Deps } from "../composition/deps.js";
 import { analyzeTree } from "../analyze.js";
 import { openPathUnder, type OpenFileIndex } from "../openfiles.js";

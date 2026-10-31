@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
-import type { RawConfig } from "../src/config.js";
+import type { RawConfig } from "../src/domain/model/config.js";
 import type { Deps } from "../src/composition/deps.js";
 import { createMcpServer } from "../src/mcp.js";
 import { parsePlan } from "../src/plan.js";

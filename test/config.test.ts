@@ -1,16 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import {
-  configCore,
-  configCoreDigest,
-  defaultStateDir,
-  DEFAULTS,
-  loadConfigFile,
-  parseRawConfig,
-  resolveConfig,
-  type RawConfig,
-} from "../src/config.js";
+import { configCore, configCoreDigest, defaultStateDir, DEFAULTS, parseRawConfig, type RawConfig } from "../src/domain/model/config.js";
+import { loadConfigFile } from "../src/infrastructure/config-file.js";
+import { resolveConfig } from "../src/composition/planning.js";
 import { canonicalJson, sha256Hex } from "../src/domain/shared/canonical.js";
 import { makeConfig, makeSandbox, testDeps, writeText, type Sandbox } from "./helpers.js";
 
