@@ -52,7 +52,9 @@ describe("dialogText", () => {
 
   it("warns that docker prunes are not reversible only when the plan has them", () => {
     expect(dialogText(plan(), 15 * MIN)).not.toContain("NOT reversible");
-    expect(dialogText(plan({ docker: true }), 15 * MIN)).toContain("1 docker prune steps are NOT reversible");
+    const withDocker = dialogText(plan({ docker: true }), 15 * MIN);
+    expect(withDocker).toContain("1 docker prune steps are NOT reversible");
+    expect(withDocker).toContain("daemon selected by your docker environment variables");
   });
 
   it("never contains file-system data, even for a hostile candidate path", () => {

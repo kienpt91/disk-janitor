@@ -38,7 +38,7 @@ export function dialogText(plan: Plan, validityMs: number): string {
     `Approve disk-janitor plan ${plan.id} (digest ${plan.digest.slice(0, 12)}): ` +
     `${plan.candidates.length} candidates, ${bytes(total)}, valid ${Math.round(validityMs / 60_000)} minutes. ` +
     `Directories are moved into a quarantine you can restore.` +
-    (docker > 0 ? ` ${docker} docker prune steps are NOT reversible.` : "") +
+    (docker > 0 ? ` ${docker} docker prune steps are NOT reversible and run on the daemon selected by your docker environment variables.` : "") +
     ` Only approve if you reviewed this plan with disk-janitor explain.`;
   if (!SAFE_TEXT.test(text)) throw new ApproverUnavailableError("dialog text contained unexpected characters");
   return text;
