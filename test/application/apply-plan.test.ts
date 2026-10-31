@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { ApplyError, revalidate } from "../../src/application/apply-plan.js";
-import { MAX_PLAN_AGE_MS } from "../../src/domain/plan/plan.js";
+import { buildPlan, MAX_PLAN_AGE_MS } from "../../src/domain/plan/plan.js";
 import { QuarantineError } from "../../src/domain/quarantine/errors.js";
 import { makeConfig } from "../support/builders.js";
 import { DisposalWorld, errno, HOME, QUARANTINE_ROOT, ROOT, wrapFs } from "../support/disposal-world.js";
@@ -438,6 +438,116 @@ describe("ApplyPlan: all-or-nothing validation", () => {
     w.fs.writeFile(`${nm}/dep/new.js`);
     await failure(w.apply(plan, {}, config));
     expect(w.docker.pruned).toEqual([]);
+  });
+});
+
+describe("ApplyPlan: apply-time catalogue check (a forged plan cannot name arbitrary directories)", () => {
+  async function forged(path: string, detector: "node-modules" | "build-output" | "package-cache" | "docker" = "node-modules") {
+    const found = { fs: [await w.measure(path, { detector })], docker: [], reports: [] };
+    const plan = buildPlan(w.config, found, w.clock.now(), w.ids.hex(4));
+    await w.approve(plan);
+    return plan;
+  }
+
+  it("refuses an arbitrary directory under a root: nothing moves and apply-aborted is published", async () => {
+    w.fs.writeFile(`${ROOT}/app/notes/todo.txt`);
+    w.fs.writeFile(`${ROOT}/app/package.json`);
+    w.fs.writeFile(`${ROOT}/app/package-lock.json`);
+    const plan = await forged(`${ROOT}/app/notes`);
+    const e = await failure(w.apply(plan));
+    expect(e.code).toBe("validation");
+    expect(e.problems).toEqual([`c0001 ${ROOT}/app/notes: not a catalogue item: its name is not node_modules`]);
+    expect(w.fs.exists(`${ROOT}/app/notes/todo.txt`)).toBe(true);
+    expect(w.fs.renames).toEqual([]);
+    expect(await w.eventNames()).toEqual(["approval-consumed", "apply-start", "apply-aborted"]);
+    expect((await w.events())[2]?.data).toEqual({ planId: plan.id, reason: "validation failed", problems: e.problems });
+  });
+
+  it("refuses a node_modules whose project has no lockfile", async () => {
+    w.fs.writeFile(`${ROOT}/app/package.json`);
+    w.fs.writeFile(`${ROOT}/app/node_modules/dep/index.js`);
+    const plan = await forged(`${ROOT}/app/node_modules`);
+    const e = await failure(w.apply(plan));
+    expect(e.problems).toEqual([`c0001 ${ROOT}/app/node_modules: not a catalogue item: no lockfile next to it, so the install is not reproducible`]);
+  });
+
+  it("refuses a lockfile that is a symlink (only regular files count)", async () => {
+    w.fs.writeFile(`${ROOT}/app/package.json`);
+    w.fs.symlink(`${ROOT}/app/package-lock.json`, "/etc/passwd");
+    w.fs.writeFile(`${ROOT}/app/node_modules/dep/index.js`);
+    const e = await failure(w.apply(await forged(`${ROOT}/app/node_modules`)));
+    expect(e.problems[0]).toContain("no lockfile next to it");
+  });
+
+  it("refuses a build-output directory with no manifest and no .git, and accepts the same with a manifest", async () => {
+    w.fs.writeFile(`${ROOT}/lib/dist/out.js`);
+    const e = await failure(w.apply(await forged(`${ROOT}/lib/dist`, "build-output")));
+    expect(e.problems).toEqual([
+      `c0001 ${ROOT}/lib/dist: not a catalogue item: no sibling manifest identifies the project type and no .git entry was found (git ignore state is not re-checked at apply)`,
+    ]);
+    const w2 = new DisposalWorld();
+    w2.fs.writeFile(`${ROOT}/lib/dist/out.js`);
+    w2.fs.writeFile(`${ROOT}/lib/package.json`);
+    const found = { fs: [await w2.measure(`${ROOT}/lib/dist`, { detector: "build-output" })], docker: [], reports: [] };
+    const plan = buildPlan(w2.config, found, w2.clock.now(), w2.ids.hex(4));
+    await w2.approve(plan);
+    expect((await w2.apply(plan)).moved).toHaveLength(1);
+  });
+
+  it("accepts a build output when a .git entry exists in an ancestor inside the root", async () => {
+    w.fs.writeFile(`${ROOT}/mono/.git/HEAD`);
+    w.fs.writeFile(`${ROOT}/mono/pkg/dist/out.js`);
+    const plan = await forged(`${ROOT}/mono/pkg/dist`, "build-output");
+    expect((await w.apply(plan)).moved).toHaveLength(1);
+  });
+
+  it("a .git above the root does not count", async () => {
+    w.fs.writeFile(`/home/dev/.git/HEAD`);
+    w.fs.writeFile(`${ROOT}/lib/dist/out.js`);
+    const e = await failure(w.apply(await forged(`${ROOT}/lib/dist`, "build-output")));
+    expect(e.problems[0]).toContain("not a catalogue item");
+  });
+
+  it("accepts a python cache beside a .py file and refuses one beside only a non-python file", async () => {
+    w.fs.writeFile(`${ROOT}/py/__pycache__/m.pyc`);
+    w.fs.writeFile(`${ROOT}/py/m.py`);
+    expect((await w.apply(await forged(`${ROOT}/py/__pycache__`, "build-output"))).moved).toHaveLength(1);
+    const w2 = new DisposalWorld();
+    w2.fs.writeFile(`${ROOT}/py/__pycache__/m.pyc`);
+    w2.fs.writeFile(`${ROOT}/py/notes.txt`);
+    const found = { fs: [await w2.measure(`${ROOT}/py/__pycache__`, { detector: "build-output" })], docker: [], reports: [] };
+    const plan = buildPlan(w2.config, found, w2.clock.now(), w2.ids.hex(4));
+    await w2.approve(plan);
+    await expect(w2.apply(plan)).rejects.toMatchObject({ code: "validation" });
+  });
+
+  it("refuses a package-cache candidate that is not a documented cache location", async () => {
+    const config = makeConfig({ packageCaches: true });
+    w.fs.writeFile(`/home/dev/projects/app/cache/a.txt`);
+    const found = { fs: [await w.measure("/home/dev/projects/app/cache", { detector: "package-cache" })], docker: [], reports: [] };
+    const plan = buildPlan(config, found, w.clock.now(), w.ids.hex(4));
+    await w.approve(plan);
+    const e = await failure(w.apply(plan, {}, config));
+    expect(e.problems).toEqual([`c0001 /home/dev/projects/app/cache: not a catalogue item: it is not one of the documented package-manager cache locations`]);
+  });
+
+  it("a documented cache location is accepted when the detector is enabled", async () => {
+    const config = makeConfig({ packageCaches: true });
+    w.fs.writeFile(`/home/dev/.npm/_cacache/index-v5/x`);
+    const found = { fs: [await w.measure("/home/dev/.npm/_cacache", { detector: "package-cache" })], docker: [], reports: [] };
+    const plan = buildPlan(config, found, w.clock.now(), w.ids.hex(4));
+    await w.approve(plan);
+    expect((await w.apply(plan, {}, config)).moved).toHaveLength(1);
+  });
+
+  it("refuses a file-system candidate attributed to the docker detector", async () => {
+    w.fs.writeFile(`${ROOT}/app/node_modules/dep/index.js`);
+    const e = await failure(w.apply(await forged(`${ROOT}/app/node_modules`, "docker")));
+    expect(e.problems[0]).toContain("detector docker does not produce file-system candidates");
+  });
+
+  it("candidates that discovery really produced still pass", async () => {
+    await expect(w.applied([w.project("a"), w.project("b")])).resolves.toBeDefined();
   });
 });
 

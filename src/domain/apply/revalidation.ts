@@ -7,6 +7,8 @@
 import { baseFor, type Base } from "../policy/bases.js";
 import { protectedReason } from "../policy/protected.js";
 import type { FsCandidate, ConfigCore } from "../model/types.js";
+import { catalogFactsRefusal, expectedCatalogItem, type CatalogFacts } from "../discovery/catalog-match.js";
+import type { CatalogExpectation } from "../discovery/catalog-match.js";
 import { isCanonicalAbsolute, isInside } from "../shared/paths.js";
 
 export const MAX_PROBLEMS = 50;
@@ -140,6 +142,25 @@ export class CandidateRevalidation {
     if (node.dev !== this.run.context.itemsDevice) return this.fail(PROBLEM.otherDeviceThanQuarantine);
     if (node.mtimeMs !== c.mtimeMs || node.mtimeMs > this.run.context.planCreatedAt) return this.fail(PROBLEM.modified);
     return true;
+  }
+
+  /**
+   * Stage 3b: what a catalogue item of this Candidate's detector must look like. Records a problem
+   * and returns null when the Candidate can never be one; otherwise what the caller must observe.
+   */
+  catalogNeed(): Exclude<CatalogExpectation, { kind: "refused" }> | null {
+    const e = expectedCatalogItem(this.run.context.config, this.planned);
+    if (e.kind === "refused") {
+      this.fail(`not a catalogue item: ${e.reason}`);
+      return null;
+    }
+    return e;
+  }
+
+  /** Stage 3c: the observed project directory identifies a catalogue item. */
+  catalogFacts(need: Exclude<CatalogExpectation, { kind: "refused" }>, facts: CatalogFacts): boolean {
+    const why = catalogFactsRefusal(need, facts);
+    return why === null ? true : this.fail(`not a catalogue item: ${why}`);
   }
 
   /** Stage 4: the tree below has exactly the size, entry count and newest mtime that were planned. */

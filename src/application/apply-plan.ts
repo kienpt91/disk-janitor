@@ -5,6 +5,7 @@
 // event, which the audit adapter appends to the hash-chained log.
 
 import { ApplyRun } from "../domain/apply/apply-run.js";
+import type { CatalogExpectation, CatalogFacts } from "../domain/discovery/catalog-match.js";
 import { quickRecheckProblem, Revalidation, swappedBeforeRename, type ChainFact, type ObservedNode } from "../domain/apply/revalidation.js";
 import { LockHeldError } from "../domain/errors.js";
 import { events, type DomainEvent } from "../domain/events.js";
@@ -12,10 +13,11 @@ import type { Config } from "../domain/model/config.js";
 import type { DockerCandidate, FsCandidate, Plan } from "../domain/model/types.js";
 import { openPathUnder, type OpenFileIndex } from "../domain/discovery/facts.js";
 import { isPlanTooOld } from "../domain/plan/plan.js";
+import { join } from "node:path";
 import { Manifest } from "../domain/quarantine/manifest.js";
 import { consumeApproval, verifyApproval } from "./approvals.js";
 import { inspectTree } from "./inspect-tree.js";
-import { findSymlinkInChain } from "./inspection.js";
+import { findSymlinkInChain, lstatOrNull } from "./inspection.js";
 import type { ApplyHooks, ApplyLock, Clock, FileStat, FileSystem } from "./ports/common.js";
 import type { DockerPort, OpenFilesPort } from "./ports/discovery.js";
 import type { ApprovalStore, AuditTrail, KeyStore } from "./ports/planning.js";
@@ -79,6 +81,34 @@ async function chainFact(fs: FileSystem, path: string): Promise<ChainFact> {
   }
 }
 
+/** Look (lstat only) at the project directory of a Candidate for what its catalogue entry needs. */
+async function observeCatalog(fs: FileSystem, need: Exclude<CatalogExpectation, { kind: "refused" }>): Promise<CatalogFacts> {
+  const facts = { regularFiles: new Set<string>(), pythonSource: false, gitEntry: false };
+  if (need.kind === "exact") return facts;
+  for (const name of need.files) {
+    const st = await lstatOrNull(fs, join(need.projectDir, name)).catch(() => null);
+    if (st?.isFile()) facts.regularFiles.add(name);
+  }
+  if (need.kind === "build-output") {
+    if (need.pythonSource) {
+      const names = await fs.readdir(need.projectDir).catch(() => [] as string[]);
+      for (const n of names.filter((x) => x.endsWith(".py"))) {
+        if ((await lstatOrNull(fs, join(need.projectDir, n)).catch(() => null))?.isFile()) {
+          facts.pythonSource = true;
+          break;
+        }
+      }
+    }
+    for (const dir of need.gitDirs) {
+      if (await lstatOrNull(fs, join(dir, ".git")).catch(() => null)) {
+        facts.gitEntry = true;
+        break;
+      }
+    }
+  }
+  return facts;
+}
+
 /**
  * Re-validate every file-system Candidate against the Plan. Returns the problems found (empty
  * means every Candidate is exactly as planned). Nothing is modified.
@@ -108,6 +138,8 @@ export async function revalidate(
       st = null;
     }
     if (!check.node(st && toNode(st), baseSt && toNode(baseSt))) continue;
+    const need = check.catalogNeed();
+    if (!need || !check.catalogFacts(need, await observeCatalog(ports.fs, need))) continue;
     const dir = st as FileStat;
     const tree = await inspectTree(ports.fs, c.path, dir, { dev: dir.dev, maxEntries: config.maxEntriesPerCandidate, strict: c.detector === "build-output" });
     const observed = tree.ok ? { ok: true as const, size: tree.stats.size, entries: tree.stats.entries, newestMtimeMs: tree.stats.newestMtimeMs } : tree;

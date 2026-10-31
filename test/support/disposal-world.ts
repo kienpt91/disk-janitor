@@ -55,6 +55,7 @@ export class DisposalWorld {
   /** `<root>/<name>/node_modules/dep/index.js`; returns the node_modules path. */
   project(name: string, bytes = 4096): string {
     this.fs.writeFile(`${ROOT}/${name}/package.json`);
+    this.fs.writeFile(`${ROOT}/${name}/package-lock.json`);
     this.fs.writeFile(`${ROOT}/${name}/node_modules/dep/index.js`, { bytes });
     return `${ROOT}/${name}/node_modules`;
   }

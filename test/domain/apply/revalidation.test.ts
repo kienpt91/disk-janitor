@@ -259,3 +259,39 @@ describe("swappedBeforeRename (what landed in quarantine)", () => {
     expect(swappedBeforeRename(c, nodeFor(c, { dev: 5n }))).toBe(true);
   });
 });
+
+describe("Revalidation: catalogue stage", () => {
+  const c = candidate(1);
+  const noFacts = { regularFiles: new Set<string>(), pythonSource: false, gitEntry: false };
+
+  it("a refused expectation is a problem with the not-a-catalogue-item prefix", () => {
+    const bad = candidate(1, { path: `${ROOT}/p1/notes` });
+    const run = new Revalidation(context, [bad]);
+    const check = run.candidate(0);
+    expect(check.catalogNeed()).toBeNull();
+    expect(run.problems).toEqual([`${bad.id} ${bad.path}: not a catalogue item: its name is not node_modules`]);
+  });
+
+  it("observed facts that do not identify the project are a problem", () => {
+    const run = new Revalidation(context, [c]);
+    const check = run.candidate(0);
+    const need = check.catalogNeed();
+    expect(need).not.toBeNull();
+    expect(check.catalogFacts(need!, { ...noFacts, regularFiles: new Set(["package.json"]) })).toBe(false);
+    expect(run.problems).toEqual([`${c.id} ${c.path}: not a catalogue item: no lockfile next to it, so the install is not reproducible`]);
+  });
+
+  it("a genuine project passes", () => {
+    const run = new Revalidation(context, [c]);
+    const check = run.candidate(0);
+    expect(check.catalogFacts(check.catalogNeed()!, { ...noFacts, regularFiles: new Set(["package.json", "yarn.lock"]) })).toBe(true);
+    expect(run.problems).toEqual([]);
+  });
+
+  it("a documented cache location needs no observation", () => {
+    const cache = candidate(1, { detector: "package-cache", path: `${HOME}/.npm/_cacache` });
+    const run = new Revalidation(context, [cache]);
+    const check = run.candidate(0);
+    expect(check.catalogFacts(check.catalogNeed()!, noFacts)).toBe(true);
+  });
+});
