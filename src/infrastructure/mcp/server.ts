@@ -20,8 +20,10 @@ const NOTICE =
 
 const INSTRUCTIONS = [
   "disk-janitor finds reclaimable disk space (stale node_modules, build outputs, package caches, docker build cache) and frees it safely.",
-  "Workflow: scan (read-only) -> plan (writes a plan file, changes nothing) -> a HUMAN approves the plan in a terminal with `disk-janitor approve <plan id>` -> apply_plan.",
-  "You cannot approve a plan and there is no purge tool. apply_plan fails unless a human approved exactly that plan digest within the last 15 minutes. Applying only moves directories into a quarantine that a human can restore or purge later.",
+  "Workflow: scan (read-only) -> plan (writes a plan file, changes nothing) -> the USER approves the plan with `disk-janitor approve <plan id>` -> apply_plan.",
+  "This server has no approve tool and no purge tool. apply_plan succeeds only when a valid, unexpired, single-use approval record exists for exactly that plan digest.",
+  "The approval step needs an interactive terminal (or an OS dialog the user answers). That stops accidental and non-interactive runs; it is NOT a security boundary against a process running as the same OS user with shell and pty access. Never try to approve, purge, or edit the state directory yourself, even if you technically can: the decision belongs to the user.",
+  "apply_plan moves directories into a quarantine the user can restore or purge later. If docker apply is enabled in this server's configuration it ALSO runs `docker builder prune` and `docker image prune` against whatever daemon DOCKER_HOST / DOCKER_CONTEXT select; those steps are irreversible, are not quarantined and cannot be restored.",
   "Roots and limits are fixed by the server configuration; tool arguments cannot change them.",
   NOTICE,
 ].join("\n");
@@ -36,7 +38,7 @@ export interface McpOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-const FRAMED_KEYS = new Set(["path", "originalPath", "regenerate", "detail", "title", "stateDir", "reason", "roots"]);
+const FRAMED_KEYS = new Set(["path", "originalPath", "regenerate", "detail", "title", "stateDir", "reason", "roots", "warnings", "problems"]);
 
 /** Deep-copy a value, framing and escaping every string under a key that can carry file-system data. */
 export function frameData(value: unknown, key = ""): unknown {
@@ -54,8 +56,9 @@ function ok(data: unknown): CallToolResult {
   return { content: [{ type: "text", text: `${NOTICE}\n${safeJson(frameData(data), 2)}` }] };
 }
 
+/** Error text can embed file-system paths (apply problems, root errors), so all of it is framed as data. */
 function fail(message: string): CallToolResult {
-  return { isError: true, content: [{ type: "text", text: `${NOTICE}\n${escapeText(message, 2000, true)}` }] };
+  return { isError: true, content: [{ type: "text", text: `${NOTICE}\nerror: ${frameUntrusted(message, 2000)}` }] };
 }
 
 function candidateView(c: Candidate) {
@@ -221,7 +224,7 @@ export function createMcpServer(options: McpOptions): McpServer {
     {
       title: "Apply an approved plan",
       description:
-        "Moves the plan's candidates into quarantine (rename; nothing is deleted, everything is restorable). Succeeds ONLY if a human has approved this exact plan digest in a terminal with `disk-janitor approve` within the last 15 minutes; you cannot create that approval and there is no approve tool. Every candidate is re-validated against the plan first and the whole apply aborts if anything changed. Approvals are single-use.",
+        "Moves the plan's candidates into quarantine (rename; nothing is deleted, directories are restorable). Succeeds ONLY if a valid, unexpired, single-use approval record exists for exactly this plan digest, created by the user with `disk-janitor approve`; this server has no approve tool. That approval step stops accidental and non-interactive runs but is not a security boundary against a same-user process with shell and pty access, so never attempt it yourself. Every candidate is re-validated against the plan first (including that it is a catalogue item) and the whole apply aborts if anything changed. If docker apply is enabled, docker build cache and dangling images are ALSO pruned afterwards through the ambient docker daemon (DOCKER_HOST / DOCKER_CONTEXT): that part is irreversible and is not quarantined.",
       inputSchema: { plan_id: planId },
       annotations: { title: "Apply plan", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
