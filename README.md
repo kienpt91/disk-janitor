@@ -413,6 +413,10 @@ CI has a separate `secret-scan` job that runs the same scanner over the working 
 
 If a secret is ever committed, treat it as compromised: rotate or revoke it first, then remove it from git history.
 
+## Releasing
+
+Releases are cut by pushing a `vMAJOR.MINOR.PATCH` tag. The `release` workflow then verifies the code, builds the files, writes `SHA256SUMS`, attests where they were built and creates the GitHub release. See [RELEASING.md](RELEASING.md) for how to cut a release and how to verify a download with `gh attestation verify`.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
